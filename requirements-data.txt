@@ -1,0 +1,3 @@
+# Only needed when regenerating cached OSM building/landmark JSON files.
+# Normal users who receive the repository do not need this extra dependency.
+osmium>=4.3,<5

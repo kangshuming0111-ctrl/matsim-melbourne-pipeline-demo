@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "sample_small_test_area_melbourne_cbd"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [144.955, -37.822],
+          [144.968, -37.822],
+          [144.968, -37.812],
+          [144.955, -37.812],
+          [144.955, -37.822]
+        ]]
+      }
+    }
+  ]
+}

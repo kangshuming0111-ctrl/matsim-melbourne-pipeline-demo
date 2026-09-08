@@ -1,0 +1,7 @@
+Rplots.pdf
+.Rhistory
+.RData
+.DS_Store
+/output/
+packrat/lib*/
+.Rproj.user

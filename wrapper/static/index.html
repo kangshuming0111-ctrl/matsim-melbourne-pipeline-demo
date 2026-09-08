@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MATSim 交通仿真 — 一键体验</title>
+<script src="/static/vendor/three/three.min.js"></script>
+<script src="/static/vendor/three/controls/OrbitControls.js"></script>
+<script src="/static/vendor/three/shaders/CopyShader.js"></script>
+<script src="/static/vendor/three/shaders/LuminosityHighPassShader.js"></script>
+<script src="/static/vendor/three/postprocessing/EffectComposer.js"></script>
+<script src="/static/vendor/three/postprocessing/RenderPass.js"></script>
+<script src="/static/vendor/three/postprocessing/ShaderPass.js"></script>
+<script src="/static/vendor/three/postprocessing/UnrealBloomPass.js"></script>
+<style>
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    max-width: 1080px;
+    margin: 32px auto 80px;
+    padding: 0 20px;
+    color: #172033;
+    line-height: 1.6;
+    background: #f3f6fa;
+  }
+  h1 { font-size: 30px; margin-bottom: 4px; letter-spacing: -0.02em; }
+  h2 { margin-top: 0; }
+  p.subtitle { color: #666; }
+  .eyebrow { color: #2563eb; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .panel {
+    background: rgba(255,255,255,.95);
+    border: 1px solid #dfe6ef;
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 8px 28px rgba(42,55,80,.07);
+    margin: 18px 0;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .panel h2 { font-size: 17px; margin: 0 0 6px; }
+  .panel p { margin: 4px 0 14px; color: #697386; font-size: 14px; }
+  .section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+  .badge { display:inline-flex; align-items:center; padding:4px 9px; border-radius:999px; font-size:12px; font-weight:700; }
+  .badge.ready { background:#dcfce7; color:#166534; }
+  .badge.warning { background:#fef3c7; color:#92400e; }
+  .badge.blocked { background:#fee2e2; color:#991b1b; }
+  .checks { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; }
+  .check { background:#f7f9fc; border-radius:9px; padding:9px 11px; min-width:0; }
+  .check strong { display:block; font-size:12px; }
+  .check span { display:block; color:#6b7280; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .check.ready { border-left:3px solid #22c55e; }
+  .check.warning { border-left:3px solid #f59e0b; }
+  .check.blocked { border-left:3px solid #ef4444; }
+  button {
+    display: block;
+    width: 100%;
+    padding: 16px;
+    font-size: 18px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin: 16px 0 0;
+    transition: transform .15s ease, background .15s ease;
+  }
+  button:not(:disabled):hover { background:#1d4ed8; transform:translateY(-1px); }
+  button:disabled {
+    background: #93b4e8;
+    cursor: not-allowed;
+  }
+  #status {
+    display: none;
+    padding: 16px;
+    background: #f3f4f6;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  #result { display: none; }
+  label { display: block; margin: 16px 0 4px; font-size: 14px; color: #444; }
+  select {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: white;
+  }
+  #error {
+    display: none;
+    padding: 16px;
+    background: #fef2f2;
+    border-radius: 8px;
+    color: #991b1b;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; }
+  th { background: #f9fafb; }
+  img { max-width: 100%; border-radius: 8px; margin: 12px 0; }
+  details { margin-top: 12px; }
+  .stat { margin: 4px 0; }
+  .result-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:16px 0; }
+  .stat-card { background:#f7f9fc; padding:12px 14px; border-radius:10px; }
+  .stat-card span { display:block; font-size:22px; font-weight:700; color:#1d4ed8; }
+  .secondary-button { background:#e9eef7; color:#25344f; font-size:15px; padding:11px; }
+  .secondary-button:not(:disabled):hover { background:#dbe5f3; }
+  .tiny-button { width:auto; display:inline-block; margin:0; padding:5px 9px; font-size:12px; background:#e9eef7; color:#25344f; }
+  .tiny-button:not(:disabled):hover { background:#dbe5f3; }
+  .muted { color:#6b7280; font-size:12px; }
+  .scene-legend { display:flex; align-items:center; gap:7px; font-size:12px; color:#647084; margin:7px 0; flex-wrap:wrap; }
+  .legend-item { display:inline-flex; align-items:center; gap:4px; }
+  .legend-swatch { width:14px; height:14px; border-radius:4px; display:inline-block; box-shadow:inset 0 0 0 1px rgba(20,30,40,.12); }
+  .scene-controls { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .scene-controls button { width:auto; display:inline-block; padding:8px 13px; margin:0; font-size:13px; }
+  .scene-controls select { width:auto; display:inline-block; padding:7px 28px 7px 9px; font-size:13px; }
+  .scene-controls .timeline-slider { flex:1; min-width:180px; }
+  #skylineContainer {
+    width: 100%;
+    height: 580px;
+    border-radius: 8px;
+    margin: 12px 0;
+    background: #0b0b14;
+    cursor: grab;
+  }
+  #skylineContainer canvas { display: block; }
+  @media (max-width: 760px) {
+    body { margin-top:20px; }
+    .grid, .checks, .result-stats { grid-template-columns:1fr; }
+    #skylineContainer { height:440px; }
+    table { font-size:12px; display:block; overflow-x:auto; }
+  }
+</style>
+</head>
+<body>
+
+<div class="eyebrow">Melbourne Mobility Lab</div>
+<h1>MATSim 墨尔本交通仿真</h1>
+<p class="subtitle">从 OSM 路网与 ABS/VISTA 统计数据生成合成交通情景，在可交互的 3D 墨尔本中查看仿真拥堵和车辆运行。</p>
+
+<section class="panel" id="preflightPanel">
+  <div class="section-head">
+    <div><h2>运行环境</h2><p style="margin:0">运行前自动检查，不再等二十分钟后才发现缺少数据。</p></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span id="systemBadge" class="badge warning">检查中</span>
+      <button id="refreshStatusButton" class="tiny-button" onclick="loadSystemStatus()">重新检查</button>
+    </div>
+  </div>
+  <div id="systemChecks" class="checks"></div>
+</section>
+
+<div class="grid">
+  <section class="panel">
+    <h2>新建仿真</h2>
+    <p>CBD 是固定的小型完整演示；其余区域保留为实验选项，不代表已经完成同等验证。</p>
+    <label for="regionSelect">选择区域</label>
+    <select id="regionSelect"><option>正在加载区域…</option></select>
+    <button id="runButton" onclick="startPipeline()" disabled>生成交通仿真</button>
+  </section>
+
+  <section class="panel">
+    <h2>打开已有结果</h2>
+    <p>无需重复计算，直接查看这台电脑上已经完成的仿真和 3D 动画。</p>
+    <label for="runSelect">历史运行</label>
+    <select id="runSelect"><option>正在扫描结果…</option></select>
+    <button id="openRunButton" class="secondary-button" onclick="loadSelectedRun()" disabled>打开结果</button>
+    <div id="runStorage" class="muted"></div>
+  </section>
+</div>
+
+<div id="status">
+  <div id="statusText">运行中...</div>
+</div>
+
+<div id="error">
+  <div>仿真失败，请联系技术人员处理。</div>
+  <details>
+    <summary>详细信息（给技术人员看的）</summary>
+    <pre id="errorDetail" style="white-space: pre-wrap; font-size: 12px;"></pre>
+  </details>
+</div>
+
+<div id="result" class="panel">
+  <h2>结果摘要</h2>
+  <div id="resultRunName" class="muted"></div>
+  <a id="runRecordLink" class="muted" href="#" target="_blank" rel="noopener" style="display:none">查看本次运行记录</a>
+  <div class="result-stats">
+    <div class="stat-card">总人数<span id="personCount"></span></div>
+    <div class="stat-card">总出行次数<span id="totalTrips"></span></div>
+    <div class="stat-card">仿真轮数<span id="iterations"></span></div>
+  </div>
+  <table>
+    <thead>
+      <tr><th>出行方式</th><th>次数</th><th>占比</th><th>平均耗时</th><th>平均距离</th></tr>
+    </thead>
+    <tbody id="modeTableBody"></tbody>
+  </table>
+  <h3>城市建造风格 · 交通数字孪生</h3>
+  <p style="color: #666; font-size: 14px;">真实墨尔本路网、地形与 MATSim 车辆数据，以城市建造游戏式的清晰分区和低多边形建筑呈现。深灰色是道路本体，上方彩色细带表示交通状态。拖动旋转、滚轮缩放，按 <b>WASD</b> 或方向键在城市中移动。</p>
+  <div class="scene-legend">
+    <span>道路拥堵程度：</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#3dad59"></span>畅通</span>
+    <span>→</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#e6b829"></span>缓行</span>
+    <span>→</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#d63035"></span>拥堵</span>
+    <span>→</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#7a2e94"></span>严重拥堵</span>
+    <span>→</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#1f141f"></span>近乎瘫痪</span>
+  </div>
+  <div class="scene-legend">
+    <span>建筑功能：</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#aa6f5c"></span>住宅</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#4f7588"></span>办公</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#c28b42"></span>商业</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#a99773"></span>公共建筑</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#687972"></span>工业</span>
+  </div>
+  <div id="skylineContainer"></div>
+  <div id="simTimeline" class="scene-controls">
+    <button id="simPlayPause">暂停</button>
+    <span id="simClock" style="font-size: 13px; color: #444; min-width: 52px;">00:00</span>
+    <span id="simActiveCars" style="font-size: 12px; color: #647084; min-width: 64px;">0 辆车</span>
+    <input id="simSlider" class="timeline-slider" type="range" min="0" max="1000" value="0">
+    <select id="simSpeed" aria-label="动画速度">
+      <option value="2">慢速</option>
+      <option value="4" selected>标准</option>
+      <option value="8">快速</option>
+    </select>
+    <button id="simViewCity" class="secondary-button">城市视角</button>
+    <button id="simViewTop" class="secondary-button">交通俯视</button>
+  </div>
+
+  <h3>图表</h3>
+  <img id="modestatsChart" alt="出行方式占比随迭代轮数的变化">
+  <img id="scorestatsChart" alt="平均得分随迭代轮数的变化">
+</div>
+
+<script>
+let systemCanRun = false;
+let activeViewer = null;
+let activeSceneRequest = null;
+
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, options);
+  let data = null;
+  try { data = await response.json(); } catch (_) { /* handled below */ }
+  if (!response.ok) {
+    throw new Error((data && data.detail) || `请求失败（HTTP ${response.status}）`);
+  }
+  return data;
+}
+
+async function loadRegions() {
+  const data = await apiJson('/pipeline/regions');
+  const select = document.getElementById('regionSelect');
+  select.innerHTML = '';
+  for (const region of data.regions) {
+    const option = document.createElement('option');
+    option.value = region.key;
+    option.textContent = region.label;
+    if (region.key === data.default) option.selected = true;
+    select.appendChild(option);
+  }
+}
+
+function formatBytes(value) {
+  if (!Number.isFinite(value) || value <= 0) return '0 MB';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = value, index = 0;
+  while (size >= 1024 && index < units.length - 1) { size /= 1024; index++; }
+  return `${size.toFixed(index >= 2 ? 1 : 0)} ${units[index]}`;
+}
+
+async function loadSystemStatus() {
+  const badge = document.getElementById('systemBadge');
+  const checksDiv = document.getElementById('systemChecks');
+  const button = document.getElementById('runButton');
+  const refresh = document.getElementById('refreshStatusButton');
+  refresh.disabled = true;
+  refresh.textContent = '检查中…';
+  try {
+    const data = await apiJson('/system/status');
+    systemCanRun = data.can_run_pipeline;
+    badge.className = `badge ${data.status}`;
+    badge.textContent = data.status === 'ready' ? '可以运行' : data.status === 'warning' ? '可以运行，有提醒' : '暂时不能运行';
+    checksDiv.innerHTML = '';
+    for (const check of data.checks) {
+      const div = document.createElement('div');
+      div.className = `check ${check.status}`;
+      div.title = check.detail;
+      const strong = document.createElement('strong');
+      strong.textContent = check.label;
+      const detail = document.createElement('span');
+      detail.textContent = check.detail;
+      div.append(strong, detail);
+      checksDiv.appendChild(div);
+    }
+    button.disabled = !systemCanRun;
+    button.textContent = systemCanRun ? '生成交通仿真' : '请先完成上方环境检查';
+  } catch (error) {
+    badge.className = 'badge blocked';
+    badge.textContent = '检查失败';
+    checksDiv.textContent = error.message;
+    button.disabled = true;
+  } finally {
+    refresh.disabled = false;
+    refresh.textContent = '重新检查';
+  }
+}
+
+async function loadRuns() {
+  const select = document.getElementById('runSelect');
+  const button = document.getElementById('openRunButton');
+  const storage = document.getElementById('runStorage');
+  try {
+    const data = await apiJson('/runs?limit=50');
+    const completed = data.runs.filter(run => run.status === 'completed');
+    select.innerHTML = '';
+    if (!completed.length) {
+      select.innerHTML = '<option value="">还没有完成的仿真</option>';
+      button.disabled = true;
+      storage.textContent = '';
+      return;
+    }
+    let totalSize = 0;
+    for (const run of completed) {
+      totalSize += run.size_bytes;
+      const option = document.createElement('option');
+      option.value = run.id;
+      option.textContent = `${run.label}${run.has_3d_scene ? ' · 3D' : ''}`;
+      select.appendChild(option);
+    }
+    button.disabled = false;
+    storage.textContent = `发现 ${completed.length} 个可打开结果 · 仿真结果约 ${formatBytes(totalSize)}`;
+  } catch (error) {
+    select.innerHTML = '<option value="">读取失败</option>';
+    button.disabled = true;
+    storage.textContent = error.message;
+  }
+}
+
+function showError(message, detail = '') {
+  const errorDiv = document.getElementById('error');
+  errorDiv.querySelector('div').textContent = message;
+  document.getElementById('errorDetail').textContent = detail || message;
+  errorDiv.style.display = 'block';
+}
+
+function clearDisplayedResult() {
+  document.getElementById('result').style.display = 'none';
+  if (activeSceneRequest) activeSceneRequest.abort();
+  if (activeViewer && activeViewer.userData.dispose) activeViewer.userData.dispose();
+  activeSceneRequest = null;
+  activeViewer = null;
+  document.getElementById('skylineContainer').innerHTML = '';
+  document.getElementById('modestatsChart').removeAttribute('src');
+  document.getElementById('scorestatsChart').removeAttribute('src');
+}
+
+async function loadSelectedRun() {
+  const runName = document.getElementById('runSelect').value;
+  if (!runName) return;
+  const button = document.getElementById('openRunButton');
+  button.disabled = true;
+  button.textContent = '正在打开…';
+  document.getElementById('error').style.display = 'none';
+  try {
+    const data = await apiJson(`/runs/${encodeURIComponent(runName)}`);
+    await showResult(data);
+  } catch (error) {
+    showError('无法打开这个结果', error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '打开结果';
+  }
+}
+
+async function pollJob(jobId, startedAt = Date.now()) {
+  const button = document.getElementById('runButton');
+  const statusDiv = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+  statusDiv.style.display = 'block';
+  button.disabled = true;
+
+  try {
+    const job = await apiJson(`/jobs/${jobId}`);
+    const elapsedMin = Math.floor((Date.now() - startedAt) / 60000);
+    if (job.status === 'completed') {
+      localStorage.removeItem('matsimActiveJob');
+      statusDiv.style.display = 'none';
+      if (!job.run_id || !job.result || job.result.run_id !== job.run_id) {
+        clearDisplayedResult();
+        showError(
+          '任务记录与结果不一致，未显示任何结果',
+          `预期运行：${job.run_id || '未知'}；返回运行：${job.result && job.result.run_id || '缺失'}`,
+        );
+        button.disabled = !systemCanRun;
+        return;
+      }
+      await showResult(job.result);
+      await loadRuns();
+      button.disabled = !systemCanRun;
+      return;
+    }
+    if (job.status === 'failed') {
+      localStorage.removeItem('matsimActiveJob');
+      statusDiv.style.display = 'none';
+      clearDisplayedResult();
+      showError('仿真没有完成', job.error || '没有更多错误信息');
+      button.disabled = !systemCanRun;
+      return;
+    }
+    statusText.textContent = `运行中：${job.stage || '等待执行'}（已过去 ${elapsedMin} 分钟）`;
+    setTimeout(() => pollJob(jobId, startedAt), 5000);
+  } catch (error) {
+    statusText.textContent = `暂时无法连接服务，5 秒后重试：${error.message}`;
+    setTimeout(() => pollJob(jobId, startedAt), 5000);
+  }
+}
+
+async function startPipeline() {
+  const button = document.getElementById('runButton');
+  const statusDiv = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+  const errorDiv = document.getElementById('error');
+
+  button.disabled = true;
+  errorDiv.style.display = 'none';
+  clearDisplayedResult();
+  statusDiv.style.display = 'block';
+  statusText.textContent = '正在提交任务...';
+
+  const startTime = Date.now();
+  const region = document.getElementById('regionSelect').value;
+
+  try {
+    const data = await apiJson('/pipeline/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ region }),
+    });
+    localStorage.setItem('matsimActiveJob', JSON.stringify({
+      id: data.job_id,
+      runId: data.run_id,
+      startedAt: startTime,
+    }));
+    await pollJob(data.job_id, startTime);
+  } catch (error) {
+    statusDiv.style.display = 'none';
+    showError('任务无法启动', error.message);
+    button.disabled = !systemCanRun;
+  }
+}
+
+async function showResult(data) {
+  if (!data || !data.run_id) {
+    throw new Error('结果缺少运行 ID，已拒绝展示，避免与其他运行混淆');
+  }
+  document.getElementById('error').style.display = 'none';
+  document.getElementById('personCount').textContent = data.person_count;
+  document.getElementById('totalTrips').textContent = data.total_trips;
+  document.getElementById('iterations').textContent =
+    data.num_iterations;
+  const sourceLabel = data.result_source === 'new_run'
+    ? '本次新运行 · 已完成并核对'
+    : '已有结果回放 · 不是刚刚执行的实时仿真';
+  const validationLabel = data.validation_status === 'verified_demo' ? ' · 固定演示配置' : '';
+  document.getElementById('resultRunName').textContent = `${sourceLabel}${validationLabel} · ${data.run_id}`;
+  const recordLink = document.getElementById('runRecordLink');
+  if (data.run_record_url) {
+    recordLink.href = data.run_record_url;
+    recordLink.style.display = 'inline-block';
+  } else {
+    recordLink.removeAttribute('href');
+    recordLink.style.display = 'none';
+  }
+
+  const tbody = document.getElementById('modeTableBody');
+  tbody.innerHTML = '';
+  for (const row of data.mode_rows) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${row.mode}</td><td>${row.count}</td>` +
+      `<td>${(row.share * 100).toFixed(1)}%</td>` +
+      `<td>${row.avg_time_label}</td><td>${row.avg_distance_m.toFixed(0)} 米</td>`;
+    tbody.appendChild(tr);
+  }
+
+  const modeChart = document.getElementById('modestatsChart');
+  const scoreChart = document.getElementById('scorestatsChart');
+  modeChart.style.display = data.modestats_chart_url ? 'block' : 'none';
+  scoreChart.style.display = data.scorestats_chart_url ? 'block' : 'none';
+  if (data.modestats_chart_url) modeChart.src = data.modestats_chart_url;
+  if (data.scorestats_chart_url) scoreChart.src = data.scorestats_chart_url;
+  const result = document.getElementById('result');
+  result.style.display = 'block';
+
+  if (activeSceneRequest) activeSceneRequest.abort();
+  if (activeViewer && activeViewer.userData.dispose) activeViewer.userData.dispose();
+  activeViewer = null;
+
+  if (data.skyline_scene_url) {
+    const container = document.getElementById('skylineContainer');
+    container.innerHTML = '<div style="padding:20px;color:white">正在加载 3D 城市…</div>';
+    activeSceneRequest = new AbortController();
+    try {
+      const separator = data.skyline_scene_url.includes('?') ? '&' : '?';
+      const freshSceneUrl = `${data.skyline_scene_url}${separator}v=${Date.now()}`;
+      const sceneData = await apiJson(freshSceneUrl, {
+        signal: activeSceneRequest.signal,
+        cache: 'no-store',
+      });
+      const scene3d = initSkylineViewer(container);
+      activeViewer = scene3d;
+      populateSkylineScene(scene3d, sceneData);
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('3D scene failed to build:', error);
+        container.innerHTML = '<p style="color:white;padding:20px;">3D 场景加载失败，但上方统计结果仍然有效。</p>';
+      }
+    } finally {
+      activeSceneRequest = null;
+    }
+  } else {
+    document.getElementById('skylineContainer').innerHTML = '<p style="color:white;padding:20px;">这个旧结果尚未生成 3D 场景。</p>';
+  }
+  result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function initializePage() {
+  await Promise.allSettled([loadRegions(), loadSystemStatus(), loadRuns()]);
+  const stored = localStorage.getItem('matsimActiveJob');
+  if (stored) {
+    try {
+      const job = JSON.parse(stored);
+      pollJob(job.id, job.startedAt || Date.now());
+    } catch (_) {
+      localStorage.removeItem('matsimActiveJob');
+    }
+  }
+}
+
+initializePage();
+
+function makeSkyTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 8;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  // Clear midday Melbourne sky - deep cerulean overhead fading to a pale,
+  // slightly hazy blue near the horizon (not white, not dusk).
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#236bb1');
+  grad.addColorStop(0.52, '#65a5d4');
+  grad.addColorStop(0.84, '#a8cadd');
+  grad.addColorStop(1, '#c8dce4');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 8, 256);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.encoding = THREE.LinearEncoding;
+  return texture;
+}
+
+function makeLaneMarkingTexture() {
+  // A single dash-then-gap tile: opaque white dash, transparent gap. Tiled
+  // along a road's length (repeat.x = length / DASH_PERIOD) via
+  // RepeatWrapping gives a real dashed center-line look without touching
+  // the road's own congestion-colored material underneath.
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 64, 16);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 4, 34, 8);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+function makeFacadeTexture(kind = 'generic') {
+  // A handful of deliberately stylised facade grammars makes zoning legible
+  // at city scale.  They share a restrained palette, like a city-building
+  // game, while the real OSM footprint and height remain untouched.
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const presets = {
+    residential: { frame:'#6f655e', glass:'#b9d0d2', lit:'#f3d99a', cols:6, rows:7 },
+    office:      { frame:'#44545d', glass:'#86aebc', lit:'#cde3df', cols:8, rows:9 },
+    retail:      { frame:'#675949', glass:'#9fc0c2', lit:'#f1cf7a', cols:5, rows:5 },
+    civic:       { frame:'#777064', glass:'#aebcc0', lit:'#ead8ad', cols:4, rows:6 },
+    industrial:  { frame:'#59615d', glass:'#869a98', lit:'#d7c895', cols:5, rows:3 },
+    generic:     { frame:'#646763', glass:'#9eb2b4', lit:'#ead7a1', cols:6, rows:6 },
+  };
+  const p = presets[kind] || presets.generic;
+  ctx.fillStyle = p.frame;
+  ctx.fillRect(0, 0, 128, 128);
+  const cellW = 128 / p.cols, cellH = 128 / p.rows;
+  for (let r = 0; r < p.rows; r++) {
+    for (let c = 0; c < p.cols; c++) {
+      const litHash = (r * 928371 + c * 12007) % 100;
+      ctx.fillStyle = litHash < 18 ? p.lit : p.glass;
+      const pad = cellW * 0.14;
+      ctx.fillRect(c * cellW + pad, r * cellH + pad, cellW - pad * 2, cellH - pad * 2);
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.encoding = THREE.LinearEncoding;
+  const sceneUnitsPerWindow = kind === 'office' ? 1.8 : 2.4;
+  texture.repeat.set(1 / sceneUnitsPerWindow, 1 / sceneUnitsPerWindow);
+  return texture;
+}
+
+function makeTextSprite(text) {
+  // Canvas-rendered text on a small dark pill background, used as a
+  // billboarded (always-faces-camera) landmark name label - the only way
+  // to actually identify a specific real building (e.g. "Melbourne Central
+  // office tower") while orbiting a scene of otherwise-anonymous colored boxes.
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const fontSize = 34;
+  ctx.font = `bold ${fontSize}px -apple-system, sans-serif`;
+  const textWidth = ctx.measureText(text).width;
+  const padX = 18, padY = 12;
+  canvas.width = textWidth + padX * 2;
+  canvas.height = fontSize + padY * 2;
+  // measureText resets on canvas resize, so font must be set again
+  ctx.font = `bold ${fontSize}px -apple-system, sans-serif`;
+  ctx.fillStyle = 'rgba(25,34,39,0.76)';
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(0, 0, canvas.width, canvas.height, 10);
+    ctx.fill();
+  } else {
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, padX, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  const worldPerPixel = 0.038;
+  sprite.scale.set(canvas.width * worldPerPixel, canvas.height * worldPerPixel, 1);
+  sprite.renderOrder = 999;
+  return sprite;
+}
+
+function initSkylineViewer(container) {
+  container.innerHTML = '';
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  const scene = new THREE.Scene();
+  scene.background = makeSkyTexture();
+  // Keep the playable city crisp.  Fog begins beyond the model instead of
+  // washing every facade toward gray at the default camera distance.
+  scene.fog = new THREE.Fog(0xc8dce4, 500, 850);
+
+  // A narrower field of view gives the compact, almost-isometric miniature
+  // look used by city-building games while preserving free orbit controls.
+  const camera = new THREE.PerspectiveCamera(34, width / height, 0.5, 2200);
+  const startAngle = Math.PI * 0.25;
+  const orbitRadius = 390;
+  camera.position.set(Math.cos(startAngle) * orbitRadius, 255, Math.sin(startAngle) * orbitRadius);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(width, height);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // This project deliberately uses the bundled r128 renderer's linear colour
+  // path: the scene palette was authored for direct display, and applying a
+  // second sRGB curve washes the terrain and roofs nearly white.
+  renderer.outputEncoding = THREE.LinearEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.82;
+  container.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 8, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.07;
+  controls.maxPolarAngle = Math.PI / 2 - 0.03;
+  controls.minDistance = 50;
+  controls.maxDistance = 900;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.24;
+  const stopAutoRotate = () => { controls.autoRotate = false; };
+  controls.addEventListener('start', stopAutoRotate);
+
+  const cityViewButton = document.getElementById('simViewCity');
+  const topViewButton = document.getElementById('simViewTop');
+  const setCameraPreset = (preset) => {
+    controls.autoRotate = false;
+    controls.target.set(0, 8, 0);
+    if (preset === 'top') {
+      camera.position.set(0, 520, 180);
+    } else {
+      camera.position.set(Math.cos(startAngle) * orbitRadius, 255, Math.sin(startAngle) * orbitRadius);
+      controls.autoRotate = true;
+    }
+    camera.lookAt(controls.target);
+    controls.update();
+  };
+  const onCityView = () => setCameraPreset('city');
+  const onTopView = () => setCameraPreset('top');
+  cityViewButton.addEventListener('click', onCityView);
+  topViewButton.addEventListener('click', onTopView);
+
+  // Movable viewpoint: WASD/arrow keys fly the camera (and what it's
+  // orbiting around) across the city, on top of drag-to-rotate/scroll-to-
+  // zoom - so this isn't just "spin in place", the user can actually move
+  // through the scene. Movement is relative to the camera's current facing
+  // direction, flattened onto the ground plane (so "forward" always means
+  // "the way you're looking", not a fixed world axis).
+  const moveState = { forward: 0, right: 0 };
+  const keyMap = {
+    'KeyW': 'forward', 'ArrowUp': 'forward',
+    'KeyS': 'back', 'ArrowDown': 'back',
+    'KeyA': 'left', 'ArrowLeft': 'left',
+    'KeyD': 'right', 'ArrowRight': 'right',
+  };
+  function setMove(action, active) {
+    if (action === 'forward') moveState.forward = active ? 1 : (moveState.forward > 0 ? 0 : moveState.forward);
+    if (action === 'back') moveState.forward = active ? -1 : (moveState.forward < 0 ? 0 : moveState.forward);
+    if (action === 'right') moveState.right = active ? 1 : (moveState.right > 0 ? 0 : moveState.right);
+    if (action === 'left') moveState.right = active ? -1 : (moveState.right < 0 ? 0 : moveState.right);
+  }
+  const onKeyDown = (e) => {
+    const action = keyMap[e.code];
+    if (action) { setMove(action, true); controls.autoRotate = false; e.preventDefault(); }
+  };
+  const onKeyUp = (e) => {
+    const action = keyMap[e.code];
+    if (action) setMove(action, false);
+  };
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  const moveSpeed = 3.2;
+  function applyMovement() {
+    if (!moveState.forward && !moveState.right) return;
+    const camForward = new THREE.Vector3();
+    camera.getWorldDirection(camForward);
+    camForward.y = 0;
+    camForward.normalize();
+    const camRight = new THREE.Vector3().crossVectors(camForward, new THREE.Vector3(0, 1, 0)).normalize();
+    const delta = new THREE.Vector3()
+      .addScaledVector(camForward, moveState.forward * moveSpeed)
+      .addScaledVector(camRight, moveState.right * moveSpeed);
+    camera.position.add(delta);
+    controls.target.add(delta);
+  }
+
+  // Clear-day palette: bright blue-sky fill from above, warm neutral sun -
+  // ground and roads need to read clearly, not just glow in the dark.
+  scene.add(new THREE.HemisphereLight(0xe2f2ff, 0x40543d, 0.8));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.08));
+  const sun = new THREE.DirectionalLight(0xfff0d0, 0.94);
+  // High midday sun angle (~63° elevation), not a low grazing one - at low
+  // angles, tall buildings cast very long shadows that read as confusing
+  // diagonal streaks across the whole scene, especially from a near-overhead
+  // camera angle where they don't look like recognizable "shadows" at all.
+  sun.position.set(-140, 320, 100);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -260;
+  sun.shadow.camera.right = 260;
+  sun.shadow.camera.top = 260;
+  sun.shadow.camera.bottom = -260;
+  sun.shadow.camera.near = 10;
+  sun.shadow.camera.far = 700;
+  sun.shadow.bias = -0.0015;
+  scene.add(sun);
+  const rim = new THREE.DirectionalLight(0xc9e5f2, 0.24);
+  rim.position.set(200, 120, -180);
+  scene.add(rim);
+
+  const composer = new THREE.EffectComposer(renderer);
+  composer.addPass(new THREE.RenderPass(scene, camera));
+  const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(width, height), 0.16, 0.25, 0.82);
+  composer.addPass(bloom);
+
+  // Per-frame hooks other setup code (e.g. the vehicle animation) can push
+  // into, without this function needing to know about them in advance.
+  scene.userData.tickCallbacks = [];
+  scene.userData.cleanupCallbacks = [];
+  const clock = new THREE.Clock();
+  let disposed = false;
+  let animationFrame = null;
+
+  function animate() {
+    if (disposed) return;
+    animationFrame = requestAnimationFrame(animate);
+    applyMovement();
+    controls.update();
+    const dt = clock.getDelta();
+    for (const cb of scene.userData.tickCallbacks) cb(dt);
+    composer.render();
+  }
+  animate();
+
+  const onResize = () => {
+    const w = container.clientWidth, h = container.clientHeight;
+    if (w === 0 || h === 0) return;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    composer.setSize(w, h);
+  };
+  window.addEventListener('resize', onResize);
+
+  scene.userData.dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+    window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('resize', onResize);
+    controls.removeEventListener('start', stopAutoRotate);
+    cityViewButton.removeEventListener('click', onCityView);
+    topViewButton.removeEventListener('click', onTopView);
+    controls.dispose();
+    for (const cleanup of scene.userData.cleanupCallbacks) cleanup();
+    scene.traverse(object => {
+      if (object.geometry) object.geometry.dispose();
+      const materials = object.material ? (Array.isArray(object.material) ? object.material : [object.material]) : [];
+      for (const material of materials) material.dispose();
+    });
+    renderer.dispose();
+    container.innerHTML = '';
+  };
+
+  return scene;
+}
+
+function buildTerrainMesh(terrain) {
+  const { nx, nz, min_x, max_x, min_z, max_z, heights } = terrain;
+  const geom = new THREE.BufferGeometry();
+  const positions = new Float32Array(nx * nz * 3);
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      const idx = j * nx + i;
+      positions[idx * 3] = min_x + (max_x - min_x) * (i / (nx - 1));
+      positions[idx * 3 + 1] = heights[idx];
+      positions[idx * 3 + 2] = min_z + (max_z - min_z) * (j / (nz - 1));
+    }
+  }
+  const indices = [];
+  for (let j = 0; j < nz - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  geom.setIndex(indices);
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const minHeight = Math.min(...heights);
+  const maxHeight = Math.max(...heights);
+  const lowColor = new THREE.Color(0x477c49);
+  const highColor = new THREE.Color(0x867b51);
+  const colors = new Float32Array(nx * nz * 3);
+  for (let i = 0; i < nx * nz; i++) {
+    const t = maxHeight > minHeight ? (heights[i] - minHeight) / (maxHeight - minHeight) : 0;
+    const c = lowColor.clone().lerp(highColor, t * 0.72);
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geom.computeVertexNormals();
+
+  const mat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.96, metalness:0, flatShading:false });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.receiveShadow = true;
+
+  // Continue the landscape beyond the data tile so the city sits in a world,
+  // rather than looking like a rectangular board floating in the sky.
+  const horizonGeom = new THREE.CircleGeometry(850, 96);
+  const horizonMat = new THREE.MeshBasicMaterial({ color:0x507b4a, fog:true });
+  const horizon = new THREE.Mesh(horizonGeom, horizonMat);
+  horizon.rotation.x = -Math.PI / 2;
+  horizon.position.y = minHeight - 1.2;
+  horizon.receiveShadow = false;
+
+  const group = new THREE.Group();
+  group.add(horizon, mesh);
+  return group;
+}
+
+function terrainHeightAt(terrain, x, z) {
+  // Bilinear-interpolate the *exact same* heightmap the ground mesh is built
+  // from, so roads/buildings are guaranteed to sit on (not under) the
+  // rendered surface - they were previously positioned using independently
+  // DEM-sampled node elevations, which don't always agree with the terrain
+  // mesh's own (differently-sampled) grid, letting the ground poke through
+  // and visually "swallow" bits of road.
+  const { nx, nz, min_x, max_x, min_z, max_z, heights } = terrain;
+  const fx = ((x - min_x) / (max_x - min_x)) * (nx - 1);
+  const fz = ((z - min_z) / (max_z - min_z)) * (nz - 1);
+  const i0 = Math.max(0, Math.min(nx - 2, Math.floor(fx)));
+  const j0 = Math.max(0, Math.min(nz - 2, Math.floor(fz)));
+  const tx = Math.max(0, Math.min(1, fx - i0));
+  const tz = Math.max(0, Math.min(1, fz - j0));
+  const h00 = heights[j0 * nx + i0];
+  const h10 = heights[j0 * nx + i0 + 1];
+  const h01 = heights[(j0 + 1) * nx + i0];
+  const h11 = heights[(j0 + 1) * nx + i0 + 1];
+  const h0 = h00 + (h10 - h00) * tx;
+  const h1 = h01 + (h11 - h01) * tx;
+  return h0 + (h1 - h0) * tz;
+}
+
+function makeSegmentBox(start, end, width, height, material) {
+  const dir = new THREE.Vector3().subVectors(end, start);
+  const length = dir.length();
+  if (length < 0.25) return null;
+  dir.normalize();
+  const geom = new THREE.BoxGeometry(length, height, width);
+  const mesh = new THREE.Mesh(geom, material);
+  mesh.position.copy(start).add(end).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir);
+  return mesh;
+}
+
+function pointInPolygon(x, z, points) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const xi = points[i][0], zi = points[i][1];
+    const xj = points[j][0], zj = points[j][1];
+    const intersects = ((zi > z) !== (zj > z)) &&
+      (x < (xj - xi) * (z - zi) / ((zj - zi) || 1e-9) + xi);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function seededUnit(seed) {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function addParkTrees(scene, parks, groundY) {
+  const placements = [];
+  for (let pIndex = 0; pIndex < parks.length && placements.length < 520; pIndex++) {
+    const points = parks[pIndex].points || [];
+    if (points.length < 3) continue;
+    const xs = points.map(p => p[0]), zs = points.map(p => p[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+    const bboxArea = Math.max(0, (maxX - minX) * (maxZ - minZ));
+    const wanted = Math.max(2, Math.min(20, Math.floor(Math.sqrt(bboxArea) * 0.42)));
+    let accepted = 0;
+    for (let attempt = 0; attempt < wanted * 10 && accepted < wanted && placements.length < 520; attempt++) {
+      const x = minX + (maxX - minX) * seededUnit(pIndex * 977 + attempt * 17 + 1);
+      const z = minZ + (maxZ - minZ) * seededUnit(pIndex * 613 + attempt * 29 + 7);
+      if (!pointInPolygon(x, z, points)) continue;
+      placements.push({ x, z, scale:0.72 + seededUnit(pIndex * 83 + attempt * 41) * 0.7 });
+      accepted++;
+    }
+  }
+  if (!placements.length) return;
+
+  const trunkGeom = new THREE.CylinderGeometry(0.16, 0.23, 1.8, 6);
+  const trunkMat = new THREE.MeshStandardMaterial({ color:0x725844, roughness:1 });
+  const trunks = new THREE.InstancedMesh(trunkGeom, trunkMat, placements.length);
+  const crownGeom = new THREE.DodecahedronGeometry(0.9, 0);
+  const crownMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.95, flatShading:true });
+  const crowns = new THREE.InstancedMesh(crownGeom, crownMat, placements.length);
+  const dummy = new THREE.Object3D();
+  const greens = [0x4f7b50, 0x5e8956, 0x6d955f, 0x47734d];
+  placements.forEach((tree, i) => {
+    const y = groundY(tree.x, tree.z);
+    dummy.position.set(tree.x, y + 0.9 * tree.scale, tree.z);
+    dummy.rotation.set(0, seededUnit(i * 37) * Math.PI * 2, 0);
+    dummy.scale.set(tree.scale, tree.scale, tree.scale);
+    dummy.updateMatrix();
+    trunks.setMatrixAt(i, dummy.matrix);
+    dummy.position.set(tree.x, y + 2.25 * tree.scale, tree.z);
+    dummy.scale.set(tree.scale, tree.scale * 1.25, tree.scale);
+    dummy.updateMatrix();
+    crowns.setMatrixAt(i, dummy.matrix);
+    crowns.setColorAt(i, new THREE.Color(greens[i % greens.length]));
+  });
+  crowns.instanceColor.needsUpdate = true;
+  trunks.castShadow = crowns.castShadow = true;
+  scene.add(trunks, crowns);
+}
+
+function addStreetLights(scene, roads, groundY) {
+  const placements = [];
+  const majorRoads = [...roads].filter(r => (r.width || 0) >= 4.1).sort((a, b) => (b.width || 0) - (a.width || 0));
+  for (const road of majorRoads) {
+    const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+    const length = Math.hypot(dx, dz);
+    if (length < 14) continue;
+    const px = -dz / length, pz = dx / length;
+    const count = Math.min(5, Math.floor(length / 18));
+    for (let i = 1; i <= count && placements.length < 360; i++) {
+      const t = i / (count + 1);
+      const side = (i + placements.length) % 2 ? 1 : -1;
+      const offset = (road.width || 3) / 2 + 0.8;
+      placements.push({
+        x: road.x1 + dx * t + px * offset * side,
+        z: road.z1 + dz * t + pz * offset * side,
+      });
+    }
+    if (placements.length >= 360) break;
+  }
+  if (!placements.length) return;
+
+  const poleGeom = new THREE.CylinderGeometry(0.07, 0.11, 3.2, 6);
+  const poleMat = new THREE.MeshStandardMaterial({ color:0x515b5c, metalness:0.55, roughness:0.45 });
+  const lampGeom = new THREE.SphereGeometry(0.22, 7, 5);
+  const lampMat = new THREE.MeshStandardMaterial({ color:0xffe4a6, emissive:0xffcc72, emissiveIntensity:0.48, roughness:0.35 });
+  const poles = new THREE.InstancedMesh(poleGeom, poleMat, placements.length);
+  const lamps = new THREE.InstancedMesh(lampGeom, lampMat, placements.length);
+  const dummy = new THREE.Object3D();
+  placements.forEach((light, i) => {
+    const y = groundY(light.x, light.z);
+    dummy.position.set(light.x, y + 1.6, light.z);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    poles.setMatrixAt(i, dummy.matrix);
+    dummy.position.y = y + 3.25;
+    dummy.updateMatrix();
+    lamps.setMatrixAt(i, dummy.matrix);
+  });
+  poles.castShadow = true;
+  scene.add(poles, lamps);
+}
+
+function populateSkylineScene(scene, data) {
+  scene.add(buildTerrainMesh(data.terrain));
+  const groundY = (x, z) => terrainHeightAt(data.terrain, x, z) + 0.18;
+
+  // Real landmarks (parks/libraries/tram lines) - genuine OSM features for
+  // this region, not decorative filler. See wrapper/skyline.py's
+  // _load_landmarks() for provenance.
+  const landmarks = data.landmarks || { parks: [], libraries: [], tram_lines: [], commercial_zones: [], buildings: [], labels: [] };
+
+  function drapedArea(points, material, lift) {
+    if (!points || points.length < 3) return null;
+    const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, z)));
+    const geom = new THREE.ShapeGeometry(shape);
+    const pos = geom.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const wx = pos.getX(i);
+      const wz = pos.getY(i);
+      pos.setXYZ(i, wx, groundY(wx, wz) + lift, wz);
+    }
+    pos.needsUpdate = true;
+    geom.computeVertexNormals();
+    const mesh = new THREE.Mesh(geom, material);
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  // A very soft ground tint exposes commercial districts without replacing
+  // the real buildings with abstract blocks.
+  const commercialMat = new THREE.MeshStandardMaterial({
+    color:0xc49b58, transparent:true, opacity:0.16, roughness:1, depthWrite:false,
+  });
+  for (const zone of landmarks.commercial_zones || []) {
+    const mesh = drapedArea(zone.points, commercialMat, 0.05);
+    if (mesh) scene.add(mesh);
+  }
+
+  const parkMat = new THREE.MeshStandardMaterial({ color: 0x4f7f48, roughness: 0.9 });
+  for (const park of landmarks.parks) {
+    const mesh = drapedArea(park.points, parkMat, 0.14);
+    if (mesh) scene.add(mesh);
+  }
+  addParkTrees(scene, landmarks.parks || [], groundY);
+
+  // Tram lines: Melbourne's real tram network, raised slightly above the
+  // road surface and kept a distinct gold color regardless of congestion -
+  // trams run on their own right-of-way, not subject to car traffic jams.
+  const tramMat = new THREE.MeshStandardMaterial({
+    color: 0xb89b55, emissive: 0x7b682f, emissiveIntensity: 0.08, roughness: 0.45, metalness: 0.5,
+  });
+  for (const t of landmarks.tram_lines) {
+    const start = new THREE.Vector3(t.x1, groundY(t.x1, t.z1) + 0.72, t.z1);
+    const end = new THREE.Vector3(t.x2, groundY(t.x2, t.z2) + 0.72, t.z2);
+    const mesh = makeSegmentBox(start, end, 0.52, 0.13, tramMat);
+    if (mesh) scene.add(mesh);
+  }
+
+  // Libraries: a real landmark building - a wide low civic-building base
+  // (like a real library/museum footprint) with a small proportioned dome
+  // as a roof feature, not a tall thin cylinder (which just read as a pill).
+  for (const lib of landmarks.libraries) {
+    const libY = groundY(lib.x, lib.z);
+    const baseW = 13, baseD = 10, baseH = 9;
+    const baseGeom = new THREE.BoxGeometry(baseW, baseH, baseD);
+    const baseMat = new THREE.MeshStandardMaterial({ color: 0xd8cdb0, roughness: 0.7 });
+    const base = new THREE.Mesh(baseGeom, baseMat);
+    base.position.set(lib.x, libY + baseH / 2, lib.z);
+    base.castShadow = true;
+    base.receiveShadow = true;
+    scene.add(base);
+
+    // A small stepped plinth under the dome, then the dome itself sized as
+    // a roof feature (well under the base's footprint), like a real civic
+    // building's cupola rather than matching the building's own width.
+    const drumGeom = new THREE.CylinderGeometry(2.6, 2.6, 1.6, 16);
+    const drum = new THREE.Mesh(drumGeom, baseMat);
+    drum.position.set(lib.x, libY + baseH + 0.8, lib.z);
+    drum.castShadow = true;
+    scene.add(drum);
+
+    const domeGeom = new THREE.SphereGeometry(2.6, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+    const domeMat = new THREE.MeshStandardMaterial({
+      color: 0x3b6ea5, emissive: 0x3b6ea5, emissiveIntensity: 0.3, roughness: 0.35, metalness: 0.2,
+    });
+    const dome = new THREE.Mesh(domeGeom, domeMat);
+    dome.position.set(lib.x, libY + baseH + 1.6, lib.z);
+    dome.castShadow = true;
+    scene.add(dome);
+  }
+
+  // Real building footprints: extruded from actual OSM outlines and real
+  // (or, absent OSM height/levels data, a plain default) heights - see
+  // wrapper/skyline.py's building extraction. Color comes from real OSM
+  // data too (building:colour tag, or a real-building-type palette) - see
+  // _building_color() server-side.
+  //
+  // Melbourne's real buildings are not flat matchboxes, so two kinds of
+  // real architectural detail are added on top of the plain extrusion:
+  // (1) a window-grid facade texture on the side walls (ExtrudeGeometry
+  // puts caps in material group 0 and side walls in group 1 - confirmed by
+  // reading three.js's own source rather than assuming, since getting this
+  // backwards would put the window texture on the roof instead of the walls),
+  // and (2) tiered setback crowns (+ a thin spire for genuine skyscrapers)
+  // on the tallest real buildings, similar to how actual Melbourne towers
+  // (Eureka Tower, 101 Collins St, etc) step back or taper near the top
+  // rather than ending in a flat slab.
+  const facadeTextures = new Map();
+  function facadeTexture(kind) {
+    if (!facadeTextures.has(kind)) facadeTextures.set(kind, makeFacadeTexture(kind));
+    return facadeTextures.get(kind);
+  }
+  const capMatCache = new Map();
+  function capMaterial(colorHex, kind) {
+    const key = `${kind}:${colorHex}`;
+    if (!capMatCache.has(key)) {
+      const roofColor = new THREE.Color(colorHex).lerp(new THREE.Color(0xcfc5ae), kind === 'office' ? 0.05 : 0.11);
+      capMatCache.set(key, new THREE.MeshStandardMaterial({ color:roofColor, roughness:0.88, metalness:kind === 'office' ? 0.2 : 0.03 }));
+    }
+    return capMatCache.get(key);
+  }
+  const sideMatCache = new Map();
+  function sideMaterial(colorHex, kind) {
+    const key = `${kind}:${colorHex}`;
+    if (!sideMatCache.has(key)) {
+      const texture = facadeTexture(kind);
+      sideMatCache.set(key, new THREE.MeshStandardMaterial({
+        color:colorHex, map:texture, emissiveMap:texture,
+        emissive:kind === 'retail' ? 0xe8c16b : 0xb8c9c7,
+        emissiveIntensity:kind === 'retail' ? 0.11 : 0.055,
+        roughness:kind === 'office' ? 0.36 : 0.72,
+        metalness:kind === 'office' ? 0.32 : 0.06,
+      }));
+    }
+    return sideMatCache.get(key);
+  }
+  const crownMatCache = new Map();
+  function crownMaterial(colorHex, kind) {
+    const key = `${kind}:${colorHex}`;
+    if (!crownMatCache.has(key)) {
+      const crownColor = new THREE.Color(colorHex).lerp(new THREE.Color(0xdbe4e3), 0.24);
+      crownMatCache.set(key, new THREE.MeshStandardMaterial({ color:crownColor, roughness:0.52, metalness:kind === 'office' ? 0.32 : 0.08 }));
+    }
+    return crownMatCache.get(key);
+  }
+  const spireMat = new THREE.MeshStandardMaterial({ color: 0xcfd4d8, roughness: 0.3, metalness: 0.6 });
+  const awningMats = {
+    retail: new THREE.MeshStandardMaterial({ color:0x8f4e45, roughness:0.75 }),
+    civic: new THREE.MeshStandardMaterial({ color:0x6e756d, roughness:0.8 }),
+    industrial: new THREE.MeshStandardMaterial({ color:0x596460, roughness:0.7, metalness:0.18 }),
+  };
+  let detailCount = 0;
+
+  for (const b of landmarks.buildings || []) {
+    if (b.points.length < 3) continue;
+    const height = Math.max(b.height, 1.5);
+    const shape = new THREE.Shape(b.points.map(([x, z]) => new THREE.Vector2(x, z)));
+    const geom = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+    // ExtrudeGeometry extrudes along local Z by default; rotate it onto Y
+    // (up) and shift back into the [0, height] range the rotation leaves
+    // inverted - fine either way since a straight extrusion looks
+    // identical from both ends.
+    geom.rotateX(Math.PI / 2);
+    geom.translate(0, height, 0);
+    const heightM = b.height_m || 9;
+    let kind = b.kind || 'generic';
+    if (kind === 'generic' && heightM >= 45) kind = 'office';
+    const buildingName = (b.name || '').toLowerCase();
+    let color = b.color || '#b0a890';
+    // A few genuine skyline anchors receive restrained material accents.
+    // Their footprint and height remain data-driven; these accents make the
+    // locations recognizable without turning them into oversized mascots.
+    if (buildingName.includes('eureka tower')) color = '#3f7188';
+    else if (buildingName.includes('rialto')) color = '#456778';
+    else if (buildingName.includes('101 collins')) color = '#58747f';
+    else if (buildingName.includes('melbourne central')) color = '#70685f';
+    const mesh = new THREE.Mesh(geom, [capMaterial(color, kind), sideMaterial(color, kind)]);
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, sumX = 0, sumZ = 0;
+    for (const [x, z] of b.points) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      sumX += x; sumZ += z;
+    }
+    const cx = sumX / b.points.length, cz = sumZ / b.points.length;
+    const bboxW = Math.max(0.5, maxX - minX), bboxD = Math.max(0.5, maxZ - minZ);
+    const baseY = groundY(cx, cz);
+    mesh.position.y = baseY;
+    mesh.castShadow = heightM >= 18;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    if (buildingName.includes('eureka tower') && heightM >= 120) {
+      const goldMat = new THREE.MeshStandardMaterial({ color:0xc7a94c, roughness:0.34, metalness:0.38 });
+      const bandH = Math.max(0.65, Math.min(1.25, height * 0.035));
+      const band = new THREE.Mesh(new THREE.BoxGeometry(bboxW * 0.93, bandH, bboxD * 0.93), goldMat);
+      band.position.set(cx, baseY + height - bandH * 0.8, cz);
+      band.castShadow = true;
+      scene.add(band);
+    }
+    if (buildingName === 'melbourne central' && heightM < 90) {
+      const glassMat = new THREE.MeshStandardMaterial({
+        color:0x7fa9b1, transparent:true, opacity:0.72,
+        roughness:0.2, metalness:0.42, side:THREE.DoubleSide,
+      });
+      const radius = Math.max(1.2, Math.min(4.8, Math.min(bboxW, bboxD) * 0.34));
+      const glassCone = new THREE.Mesh(new THREE.ConeGeometry(radius, Math.max(2.2, radius * 0.95), 18, 1, true), glassMat);
+      glassCone.position.set(cx, baseY + height + Math.max(1.1, radius * 0.48), cz);
+      glassCone.castShadow = true;
+      scene.add(glassCone);
+    }
+
+    const style = seededUnit(cx * 7.13 + cz * 11.71);
+    if ((kind === 'office' || heightM >= 70) && heightM >= 48) {
+      // Tiered setback crown: each tier a bit smaller than the last,
+      // stepping in toward the top rather than ending in one flat slab -
+      // real skyscraper towers like 101 Collins St step back this way.
+      const tiers = heightM >= 150 ? 3 : (style > 0.55 ? 2 : 1);
+      let curW = bboxW, curD = bboxD, curY = baseY + height;
+      const cMat = crownMaterial(color, kind);
+      for (let i = 0; i < tiers; i++) {
+        curW *= 0.7; curD *= 0.7;
+        const tierH = Math.max(0.7, Math.min(2.2, (bboxW + bboxD) * 0.055));
+        const tierGeom = new THREE.BoxGeometry(Math.max(curW, 1), tierH, Math.max(curD, 1));
+        const tierMesh = new THREE.Mesh(tierGeom, cMat);
+        tierMesh.position.set(cx, curY + tierH / 2, cz);
+        tierMesh.castShadow = true;
+        scene.add(tierMesh);
+        curY += tierH;
+      }
+      if (heightM >= 150) {
+        // A thin spire/antenna on genuine skyscrapers (Eureka Tower,
+        // Rialto Towers, etc all have one), not applied to ordinary towers.
+        const spireH = Math.max(3, Math.min(8, (bboxW + bboxD) * 0.2));
+        const spireGeom = new THREE.CylinderGeometry(0.12, 0.5, spireH, 8);
+        const spire = new THREE.Mesh(spireGeom, spireMat);
+        spire.position.set(cx, curY + spireH / 2, cz);
+        scene.add(spire);
+      }
+    } else if ((kind === 'residential' || kind === 'generic') && heightM <= 30 && detailCount < 520 && (b.roof !== 'flat' || style > 0.38)) {
+      // Low-rise neighbourhoods get simple hipped roofs.  This one change
+      // breaks up the endless flat-roof matchbox silhouette dramatically.
+      const roofH = Math.max(0.45, Math.min(2.1, height * 0.3));
+      const roofGeom = new THREE.ConeGeometry(1, roofH, 4);
+      const roof = new THREE.Mesh(roofGeom, crownMaterial(color, 'residential'));
+      roof.position.set(cx, baseY + height + roofH / 2, cz);
+      roof.rotation.y = Math.PI / 4;
+      roof.scale.set(bboxW / Math.SQRT2, 1, bboxD / Math.SQRT2);
+      roof.castShadow = true;
+      scene.add(roof);
+      detailCount++;
+    } else if (kind === 'retail' && detailCount < 620) {
+      // A shallow coloured awning gives retail frontages a readable street
+      // edge even from the default miniature-camera distance.
+      const awningGeom = new THREE.BoxGeometry(Math.max(1, bboxW * 0.68), 0.28, 0.65);
+      const awning = new THREE.Mesh(awningGeom, awningMats.retail);
+      awning.position.set(cx, baseY + Math.min(height * 0.42, 1.5), maxZ + 0.24);
+      awning.castShadow = true;
+      scene.add(awning);
+      detailCount++;
+    } else if (kind === 'civic' && detailCount < 670 && (b.heritage || style > 0.58)) {
+      const radius = Math.max(0.45, Math.min(2.2, Math.min(bboxW, bboxD) * 0.24));
+      const cupolaGeom = new THREE.SphereGeometry(radius, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2);
+      const cupola = new THREE.Mesh(cupolaGeom, crownMaterial(color, 'civic'));
+      cupola.position.set(cx, baseY + height, cz);
+      cupola.castShadow = true;
+      scene.add(cupola);
+      detailCount++;
+    } else if (kind === 'industrial' && detailCount < 720 && bboxW > 2 && bboxD > 2) {
+      const unitGeom = new THREE.BoxGeometry(Math.min(2.2, bboxW * 0.3), 0.55, Math.min(1.8, bboxD * 0.28));
+      const unit = new THREE.Mesh(unitGeom, awningMats.industrial);
+      unit.position.set(cx, baseY + height + 0.28, cz);
+      scene.add(unit);
+      detailCount++;
+    }
+  }
+
+  // Floating name labels for real, tall/notable landmarks (e.g. "Melbourne
+  // Central office tower") - without these there's no way to actually find
+  // a specific real place while orbiting a scene of otherwise-anonymous
+  // colored boxes. Rendered as billboarded sprites (always face the camera)
+  // with depthTest off so a label stays legible even behind a nearer
+  // building, the same way a map pin label would.
+  for (const lbl of landmarks.labels || []) {
+    const sprite = makeTextSprite(lbl.name);
+    sprite.position.set(lbl.x, lbl.y + 3, lbl.z);
+    scene.add(sprite);
+  }
+
+  // City-builder road stack: pale curb/sidewalk foundation, stable asphalt
+  // carriageway, a narrow live-traffic ribbon, and lane markings.  Keeping
+  // traffic separate means a jam changes colour without making the physical
+  // street itself swell or shrink.
+  const laneTexture = makeLaneMarkingTexture();
+  const DASH_PERIOD = 7;
+  const curbMat = new THREE.MeshStandardMaterial({ color:0xa9aaa3, roughness:0.96, metalness:0 });
+  const asphaltMat = new THREE.MeshStandardMaterial({ color:0x30383d, roughness:0.88, metalness:0.03 });
+  for (const r of data.roads) {
+    const width = r.width || 2.6;
+    const start = new THREE.Vector3(r.x1, groundY(r.x1, r.z1), r.z1);
+    const end = new THREE.Vector3(r.x2, groundY(r.x2, r.z2), r.z2);
+    const length = start.distanceTo(end);
+    if (length < 0.5) continue;
+
+    const curbStart = start.clone().add(new THREE.Vector3(0, 0.13, 0));
+    const curbEnd = end.clone().add(new THREE.Vector3(0, 0.13, 0));
+    const curb = makeSegmentBox(curbStart, curbEnd, width + 0.86, 0.28, curbMat);
+    if (curb) { curb.receiveShadow = true; scene.add(curb); }
+
+    const roadStart = start.clone().add(new THREE.Vector3(0, 0.28, 0));
+    const roadEnd = end.clone().add(new THREE.Vector3(0, 0.28, 0));
+    const asphalt = makeSegmentBox(roadStart, roadEnd, width, 0.20, asphaltMat);
+    if (asphalt) { asphalt.receiveShadow = true; scene.add(asphalt); }
+
+    const hasTraffic = r.severity !== null && r.severity !== undefined ? true : (r.glow || 0) > 0.1;
+    if (hasTraffic) {
+      const color = new THREE.Color(r.color[0], r.color[1], r.color[2]);
+      const trafficMat = new THREE.MeshStandardMaterial({
+        color, emissive:color, emissiveIntensity:r.glow || 0.08,
+        roughness:0.48, metalness:0.02,
+      });
+      const trafficStart = start.clone().add(new THREE.Vector3(0, 0.42, 0));
+      const trafficEnd = end.clone().add(new THREE.Vector3(0, 0.42, 0));
+      const traffic = makeSegmentBox(trafficStart, trafficEnd, Math.max(0.68, Math.min(1.72, width * 0.3)), 0.075, trafficMat);
+      if (traffic) scene.add(traffic);
+    }
+
+    if (width >= 3.45) {
+      const lineTex = laneTexture.clone();
+      lineTex.needsUpdate = true;
+      lineTex.repeat.set(length / DASH_PERIOD, 1);
+      const lineMat = new THREE.MeshStandardMaterial({
+        map:lineTex, transparent:true, opacity:0.78, roughness:0.6, depthWrite:false,
+      });
+      const lineStart = start.clone().add(new THREE.Vector3(0, 0.48, 0));
+      const lineEnd = end.clone().add(new THREE.Vector3(0, 0.48, 0));
+      const line = makeSegmentBox(lineStart, lineEnd, Math.min(0.24, width * 0.055), 0.025, lineMat);
+      if (line) scene.add(line);
+    }
+  }
+  addStreetLights(scene, data.roads || [], groundY);
+
+  setupVehicleAnimation(scene, data, groundY);
+}
+
+function formatSimClock(seconds) {
+  const total = Math.floor(seconds) % 86400;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function setupVehicleAnimation(scene, data, groundY) {
+  const vehicles = data.vehicles || [];
+  const [rangeStart, rangeEnd] = data.sim_time_range || [0, 86400];
+  const slider = document.getElementById('simSlider');
+  const clockLabel = document.getElementById('simClock');
+  const activeCarsLabel = document.getElementById('simActiveCars');
+  const playPauseBtn = document.getElementById('simPlayPause');
+  const speedSelect = document.getElementById('simSpeed');
+  if (!vehicles.length || !slider) return;
+
+  // Two-tier body+cabin silhouette (not a single flat box) so cars read as
+  // actual cars from the default orbit view, with real color variety - a
+  // small palette of ordinary real-world car colors, assigned per-vehicle
+  // and kept stable for the whole run (not re-randomized every frame).
+  const BODY_W = 2.05, BODY_H = 0.82, BODY_L = 3.85;
+  const CABIN_W = 1.58, CABIN_H = 0.72, CABIN_L = 1.85;
+  const BODY_CENTER_Y = 0.84;
+  const CABIN_Y_OFFSET = BODY_H / 2 + CABIN_H / 2;
+  const CABIN_Z_OFFSET = -0.4; // sits slightly toward the rear, like a real greenhouse
+
+  const CAR_COLORS = [0xe9e8e2, 0x303437, 0xaeb6b8, 0xa84e43, 0x4e6f8d, 0x55715d, 0xb19b82, 0x8e3d39];
+
+  const bodyGeom = new THREE.BoxGeometry(BODY_W, BODY_H, BODY_L);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.35 });
+  const carMesh = new THREE.InstancedMesh(bodyGeom, bodyMat, vehicles.length);
+  carMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  carMesh.castShadow = true;
+  carMesh.frustumCulled = false;
+  scene.add(carMesh);
+
+  const cabinGeom = new THREE.BoxGeometry(CABIN_W, CABIN_H, CABIN_L);
+  const cabinMat = new THREE.MeshStandardMaterial({ color: 0x1b1f24, roughness: 0.25, metalness: 0.6 });
+  const cabinMesh = new THREE.InstancedMesh(cabinGeom, cabinMat, vehicles.length);
+  cabinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  cabinMesh.castShadow = true;
+  cabinMesh.frustumCulled = false;
+  scene.add(cabinMesh);
+
+  // Two dark axle/wheel bars give every moving unit an unmistakable car
+  // silhouette without loading heavyweight external 3D assets.
+  const axleGeom = new THREE.BoxGeometry(BODY_W + 0.28, 0.30, 0.36);
+  const axleMat = new THREE.MeshStandardMaterial({ color:0x202427, roughness:0.72, metalness:0.18 });
+  const axleMesh = new THREE.InstancedMesh(axleGeom, axleMat, vehicles.length * 2);
+  axleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  axleMesh.castShadow = true;
+  axleMesh.frustumCulled = false;
+  scene.add(axleMesh);
+
+  for (let i = 0; i < vehicles.length; i++) {
+    carMesh.setColorAt(i, new THREE.Color(CAR_COLORS[i % CAR_COLORS.length]));
+  }
+  carMesh.instanceColor.needsUpdate = true;
+
+  const dummy = new THREE.Object3D();
+  const cabinDummy = new THREE.Object3D();
+  const axleDummy = new THREE.Object3D();
+  const zeroScale = new THREE.Matrix4().makeScale(0, 0, 0);
+
+  // Real-world speed: SPEED_MULTIPLIER simulated seconds pass per real
+  // second. Kept low enough that a car crossing a single (typically
+  // 50-150m) link still takes a visible fraction of a second on screen,
+  // rather than teleporting between intersections.
+  let speedMultiplier = Number(speedSelect ? speedSelect.value : 4);
+  const requestedFocus = Number(data.sim_focus_time);
+  let simTime = Number.isFinite(requestedFocus)
+    ? Math.max(rangeStart, Math.min(rangeEnd, requestedFocus))
+    : rangeStart;
+  let playing = true;
+  let userScrubbing = false;
+
+  slider.min = rangeStart;
+  slider.max = rangeEnd;
+  slider.value = simTime;
+  clockLabel.textContent = formatSimClock(simTime);
+
+  function updateVehiclePositions() {
+    let activeCount = 0;
+    for (let i = 0; i < vehicles.length; i++) {
+      const trips = vehicles[i].trips;
+      let placed = false;
+      for (const trip of trips) {
+        const firstT = trip[0][0], lastT = trip[trip.length - 1][0];
+        if (simTime < firstT || simTime > lastT) continue;
+        let kf0 = trip[0], kf1 = trip[trip.length - 1];
+        for (let j = 0; j < trip.length - 1; j++) {
+          if (simTime >= trip[j][0] && simTime <= trip[j + 1][0]) {
+            kf0 = trip[j]; kf1 = trip[j + 1];
+            break;
+          }
+        }
+        const [t0, x0, _y0, z0] = kf0;
+        const [t1, x1, _y1, z1] = kf1;
+        const frac = t1 > t0 ? Math.max(0, Math.min(1, (simTime - t0) / (t1 - t0))) : 0;
+        const x = x0 + (x1 - x0) * frac;
+        const z = z0 + (z1 - z0) * frac;
+        const y = groundY(x, z);
+        dummy.position.set(x, y + BODY_CENTER_Y, z);
+        const dx = x1 - x0, dz = z1 - z0;
+        if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
+          dummy.rotation.set(0, Math.atan2(dx, dz), 0);
+        }
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        carMesh.setMatrixAt(i, dummy.matrix);
+
+        cabinDummy.position.copy(dummy.position);
+        cabinDummy.rotation.copy(dummy.rotation);
+        cabinDummy.scale.set(1, 1, 1);
+        cabinDummy.translateY(CABIN_Y_OFFSET);
+        cabinDummy.translateZ(CABIN_Z_OFFSET);
+        cabinDummy.updateMatrix();
+        cabinMesh.setMatrixAt(i, cabinDummy.matrix);
+
+        axleDummy.position.copy(dummy.position);
+        axleDummy.rotation.copy(dummy.rotation);
+        axleDummy.scale.set(1, 1, 1);
+        axleDummy.translateY(-0.34);
+        axleDummy.translateZ(1.18);
+        axleDummy.updateMatrix();
+        axleMesh.setMatrixAt(i * 2, axleDummy.matrix);
+        axleDummy.translateZ(-2.36);
+        axleDummy.updateMatrix();
+        axleMesh.setMatrixAt(i * 2 + 1, axleDummy.matrix);
+        placed = true;
+        activeCount++;
+        break;
+      }
+      if (!placed) {
+        carMesh.setMatrixAt(i, zeroScale);
+        cabinMesh.setMatrixAt(i, zeroScale);
+        axleMesh.setMatrixAt(i * 2, zeroScale);
+        axleMesh.setMatrixAt(i * 2 + 1, zeroScale);
+      }
+    }
+    carMesh.instanceMatrix.needsUpdate = true;
+    cabinMesh.instanceMatrix.needsUpdate = true;
+    axleMesh.instanceMatrix.needsUpdate = true;
+    if (activeCarsLabel) activeCarsLabel.textContent = `${activeCount} 辆车`;
+  }
+
+  const onPlayPause = () => {
+    playing = !playing;
+    playPauseBtn.textContent = playing ? '暂停' : '播放';
+  };
+  const onSliderInput = () => {
+    userScrubbing = true;
+    simTime = Number(slider.value);
+    clockLabel.textContent = formatSimClock(simTime);
+    updateVehiclePositions();
+  };
+  const onSliderChange = () => { userScrubbing = false; };
+  const onSpeedChange = () => { speedMultiplier = Number(speedSelect.value); };
+  playPauseBtn.addEventListener('click', onPlayPause);
+  slider.addEventListener('input', onSliderInput);
+  slider.addEventListener('change', onSliderChange);
+  speedSelect.addEventListener('change', onSpeedChange);
+  scene.userData.cleanupCallbacks.push(() => {
+    playPauseBtn.removeEventListener('click', onPlayPause);
+    slider.removeEventListener('input', onSliderInput);
+    slider.removeEventListener('change', onSliderChange);
+    speedSelect.removeEventListener('change', onSpeedChange);
+  });
+
+  scene.userData.tickCallbacks.push((dt) => {
+    if (playing && !userScrubbing) {
+      simTime += dt * speedMultiplier;
+      if (simTime > rangeEnd) simTime = rangeStart;
+      slider.value = simTime;
+      clockLabel.textContent = formatSimClock(simTime);
+    }
+    updateVehiclePositions();
+  });
+
+  updateVehiclePositions();
+}
+</script>
+
+</body>
+</html>

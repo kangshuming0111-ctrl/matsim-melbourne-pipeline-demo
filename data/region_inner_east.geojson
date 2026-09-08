@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "inner_east_melbourne"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [144.975, -37.822],
+          [144.988, -37.822],
+          [144.988, -37.812],
+          [144.975, -37.812],
+          [144.975, -37.822]
+        ]]
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+.claude/
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime data and outputs (large, machine-specific)
+data/*
+!data/.gitkeep
+!data/sample_region.geojson
+!data/region_*.geojson
+output/*
+!output/.gitkeep
+
+# R (renv package caches are machine-specific and Docker rebuilds them anyway)
+vendor/*/.Rproj.user/
+vendor/*/renv/library/
+
+# Java/Maven (Docker rebuilds this anyway)
+vendor/*/target/

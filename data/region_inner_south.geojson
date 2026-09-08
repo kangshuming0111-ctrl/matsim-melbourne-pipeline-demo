@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "inner_south_melbourne"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [144.955, -37.842],
+          [144.968, -37.842],
+          [144.968, -37.832],
+          [144.955, -37.832],
+          [144.955, -37.842]
+        ]]
+      }
+    }
+  ]
+}
