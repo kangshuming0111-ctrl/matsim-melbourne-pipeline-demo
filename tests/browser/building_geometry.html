@@ -1,0 +1,96 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<title>Building geometry regression</title>
+<style>body{font:15px system-ui;margin:24px;background:#edf0f1}pre{white-space:pre-wrap}canvas{max-width:100%}</style>
+<h1>Building solids: production geometry + production renderer</h1>
+<p>Rotated, courtyard, concave, gabled, hipped, clipped, and legacy inputs.
+No simulation is started. A courtyard must remain open, with no overhanging crowns.</p>
+<pre id="result">Running…</pre><div id="view"></div>
+<script src="http://127.0.0.1:8000/static/vendor/three/three.min.js"></script>
+<script src="http://127.0.0.1:8000/static/landuse-geometry.js?v=areas-2"></script>
+<script src="http://127.0.0.1:8000/static/building-mesh.js?v=facade-2"></script>
+<script src="http://127.0.0.1:8000/static/building-style.js?v=1"></script>
+<script src="http://127.0.0.1:8000/static/static-batches.js?v=1"></script>
+<script>
+(async function(){
+  const messages=[];
+  function check(ok,msg){if(!ok)throw Error(msg);messages.push('PASS '+msg);}
+  try {
+    const response=await fetch('building-fixtures.json');
+    if(!response.ok)throw Error('Fixture missing; run building_fixture.py first');
+    const entries=await response.json();
+    const ground=(x,z)=>0.03*x+0.02*z;
+    const style=SkylineBuildingStyle.createPalette(THREE);
+    const scene=new THREE.Scene();scene.background=new THREE.Color(0xedf0f1);
+    scene.add(new THREE.HemisphereLight(0xffffff,0x697365,1));
+    const sun=new THREE.DirectionalLight(0xffffff,0.7);sun.position.set(-30,100,50);scene.add(sun);
+    for(let n=0;n<entries.length;n++){
+      const b=entries[n],group=SkylineBuildings.create(THREE,b,ground,style({...b,height_m:80,kind:'office'}));
+      group.updateMatrixWorld(true);
+      const maxY=Math.max(...b.points.map(([x,z])=>ground(x,z)))+b.height;
+      let finite=true,top=-Infinity,upNormals=true,inside=true;
+      function onRing(x,z,ring){
+        for(let i=0;i<ring.length;i++){
+          const a=ring[i],c=ring[(i+1)%ring.length],dx=c[0]-a[0],dz=c[1]-a[1];
+          const t=Math.max(0,Math.min(1,((x-a[0])*dx+(z-a[1])*dz)/(dx*dx+dz*dz||1)));
+          if(Math.hypot(x-a[0]-dx*t,z-a[1]-dz*t)<1e-4)return true;
+        }return false;
+      }
+      group.traverse(obj=>{
+        if(!obj.isMesh)return;
+        const p=obj.geometry.attributes.position;
+        for(let i=0;i<p.count;i++){
+          const x=p.getX(i),y=p.getY(i),z=p.getZ(i);
+          finite=finite&&[x,y,z].every(Number.isFinite);top=Math.max(top,y);
+          inside=inside&&(SkylineLanduse.contains(b,x,z)||onRing(x,z,b.points)||
+                         (b.holes||[]).some(r=>onRing(x,z,r)));
+        }
+      });
+      check(finite&&Math.abs(top-maxY)<1e-4,b.osm_id+': finite vertices and declared total height');
+      check(inside,b.osm_id+': all solid/roof vertices inside original footprint');
+      if(b.osm_id==='courtyard'){
+        const ray=new THREE.Raycaster(new THREE.Vector3(0,100,0),new THREE.Vector3(0,-1,0));
+        check(ray.intersectObject(group,true).length===0,'courtyard: no roof/body across the hole');
+        ray.set(new THREE.Vector3(6,100,0),new THREE.Vector3(0,-1,0));
+        check(ray.intersectObject(group,true).length>0,'courtyard: surrounding solid remains present');
+      }
+      if(b.osm_id==='legacy'||b.osm_id==='clipped'){
+        check(group.children.length===1&&group.userData.roofKind==='flat',b.osm_id+': no invented decoration');
+      }
+      if(b.architecture&&b.architecture.kind==='pitched'){
+        const normals=group.children[1].geometry.attributes.normal;
+        for(let i=0;i<normals.count;i++)upNormals=upNormals&&normals.getY(i)>0;
+        check(upNormals,b.osm_id+': all pitched roof faces point upward');
+      }
+      group.position.x=(n%4)*27-40;group.position.z=Math.floor(n/4)*30;
+      scene.add(group);
+    }
+    const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(1000,420);
+    const camera=new THREE.PerspectiveCamera(40,1000/420,0.5,400);camera.position.set(75,85,125);camera.lookAt(0,8,10);
+    // Same production solids before/after batching. Pixel comparisons catch
+    // holes, flipped normals, shifted roofs and missing material groups.
+    const solids=[];scene.traverse(obj=>{if(obj.isMesh)solids.push(obj);});
+    const target=new THREE.WebGLRenderTarget(400,240,{stencilBuffer:true});
+    const baseline=[];let sourceCalls=0,batchedCalls=0;
+    function view(i){camera.position.set(Math.cos(i*Math.PI/4)*120,60+(i%2)*30,Math.sin(i*Math.PI/4)*120);camera.lookAt(0,8,10);}
+    function pixels(){
+      renderer.setRenderTarget(target);renderer.render(scene,camera);
+      const result=new Uint8Array(400*240*4);renderer.readRenderTargetPixels(target,0,0,400,240,result);return result;
+    }
+    for(let i=0;i<8;i++){view(i);baseline.push(pixels());sourceCalls+=renderer.info.render.calls;}
+    const batch=SkylineStaticBatches.create(THREE,scene,solids);
+    for(let i=0;i<8;i++){
+      view(i);const actual=pixels();batchedCalls+=renderer.info.render.calls;
+      let changed=0;
+      for(let p=0;p<actual.length;p+=4){
+        if(Math.max(...[0,1,2].map(c=>Math.abs(actual[p+c]-baseline[i][p+c])))>2)changed++;
+      }
+      check(changed<=400*240*.001,`batch view ${i}: pixel difference ${changed}/96000 (tolerance 0.1%)`);
+    }
+    check(batchedCalls<sourceCalls,`batch draw submissions over 8 views: ${sourceCalls} -> ${batchedCalls}`);
+    target.dispose();renderer.setRenderTarget(null);camera.position.set(75,85,125);camera.lookAt(0,8,10);
+    renderer.render(scene,camera);document.getElementById('view').appendChild(renderer.domElement);
+    check(renderer.getContext().getError()===0,'WebGL rendering reports no GL error');
+    document.getElementById('result').textContent=messages.join('\n')+'\nALL '+messages.length+' CHECKS PASSED';
+  }catch(error){document.getElementById('result').textContent=messages.join('\n')+'\nFAIL '+error.stack;}
+})();
+</script></html>

@@ -1,0 +1,53 @@
+{
+  "suite": "P2 internal evaluation v1",
+  "split": "development",
+  "engine": "deterministic",
+  "count": 30,
+  "passed": 28,
+  "all_case_accuracy": 0.9333333333333333,
+  "numeric_answerable_count": 20,
+  "numeric_answerable_correct": 18,
+  "numeric_answerable_accuracy": 0.9,
+  "strict_model_numeric_correct": null,
+  "strict_model_numeric_accuracy": null,
+  "insufficient_evidence_cases": 9,
+  "correct_refusals": 9,
+  "citation_failures": 0,
+  "ai_used_cases": 0,
+  "fallback_cases": 0,
+  "latency_ms": {
+    "all_p50": 0.1795,
+    "all_p95": 0.8198999999999977,
+    "model_invoked_p50": null,
+    "model_invoked_p95": null
+  },
+  "api_cost_usd_total": 0,
+  "api_cost_usd_per_question": 0,
+  "cost_scope": "Local inference API fee only; electricity/hardware unmeasured. Download/storage/setup costs excluded.",
+  "model": {
+    "available": true,
+    "provider": "ollama-local",
+    "model": "qwen3:4b-instruct-2507-q4_K_M",
+    "version": "0.40.6",
+    "model_digest": "0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0",
+    "api_cost_usd": 0,
+    "cost_note": "Local inference: no API fee; electricity and hardware are not priced."
+  },
+  "wall_time_seconds": 0.18627549899974838,
+  "code_sha256": {
+    "wrapper/assistant.py": "5983c2d3815f580a08662e88f5bdebbda28c521c7d4e683d57ce8a10b6b86a4a",
+    "wrapper/ai_provider.py": "84e6ead23abad2bdf64522bc430892227b0ec3a61ab2f1a8e493156adf16712f",
+    "scripts/evaluate_assistant.py": "73bfb061e55742a6ad2326b9381bdc8a2c3bb9b7294455d3b0b20ec56d53c3fb"
+  },
+  "suite_sha256": "0b9b454546f7587a87cc6ebd24192a69545514fd138979c23624837bbd3ea49d",
+  "created_at_utc": "2026-10-19T09:38:01.599419+00:00",
+  "failed_ids": [
+    "p2-19",
+    "p2-20"
+  ],
+  "limitations": [
+    "Small same-author internal suite; not an external benchmark or production reliability guarantee.",
+    "Policy refusals can occur before the model; guarded refusals are not claims about unguarded model safety.",
+    "Evidence-bound explanations use reviewed claim blocks; the model routes and organizes, not unrestricted causal writing."
+  ]
+}

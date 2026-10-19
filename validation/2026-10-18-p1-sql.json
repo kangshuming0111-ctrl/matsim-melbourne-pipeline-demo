@@ -1,0 +1,286 @@
+{
+  "release": "2026.10-p1",
+  "result": "passed",
+  "summary_comparisons": 36,
+  "paired_comparisons": 9,
+  "numeric_tolerance": {
+    "relative": 1e-12,
+    "absolute": 1e-09
+  },
+  "prior_p0_source_hashes_matched": 27,
+  "integrity_checks": [
+    {
+      "check_name": "case_plans_mismatch",
+      "issue_count": 0
+    },
+    {
+      "check_name": "incomplete_seed_triplet",
+      "issue_count": 0
+    },
+    {
+      "check_name": "invalid_distance_semantics",
+      "issue_count": 0
+    },
+    {
+      "check_name": "invalid_time_semantics",
+      "issue_count": 0
+    },
+    {
+      "check_name": "missing_core_source_hash",
+      "issue_count": 0
+    },
+    {
+      "check_name": "orphan_trips",
+      "issue_count": 0
+    },
+    {
+      "check_name": "trip_row_count_mismatch",
+      "issue_count": 0
+    },
+    {
+      "check_name": "unflagged_duplicate_keys",
+      "issue_count": 0
+    }
+  ],
+  "idempotence": {
+    "imported_runs": 0,
+    "skipped_runs": 9
+  },
+  "table_counts_unchanged": {
+    "runs": 9,
+    "trips": 32607,
+    "link_metrics": 102090,
+    "source_artifacts": 99
+  },
+  "checks": [
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_baseline_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_baseline_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_baseline_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_baseline_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_closure_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_closure_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_closure_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_closure_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_alternative_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_alternative_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_alternative_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_alternative_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_baseline_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_baseline_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_baseline_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_baseline_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_closure_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_closure_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_closure_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_closure_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_alternative_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_alternative_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_alternative_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_alternative_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_baseline_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_baseline_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_baseline_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_baseline_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_closure_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_closure_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_closure_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_closure_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_alternative_a01_sim",
+      "mode": "walk",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_alternative_a01_sim",
+      "mode": "pt",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_alternative_a01_sim",
+      "mode": "car",
+      "summary_match": true
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_alternative_a01_sim",
+      "mode": "bike",
+      "summary_match": true
+    },
+    {
+      "seed": 4711,
+      "comparison": "alternative_vs_baseline",
+      "paired_impact_match": true
+    },
+    {
+      "seed": 4712,
+      "comparison": "alternative_vs_baseline",
+      "paired_impact_match": true
+    },
+    {
+      "seed": 4713,
+      "comparison": "alternative_vs_baseline",
+      "paired_impact_match": true
+    },
+    {
+      "seed": 4711,
+      "comparison": "alternative_vs_closure",
+      "paired_impact_match": true
+    },
+    {
+      "seed": 4712,
+      "comparison": "alternative_vs_closure",
+      "paired_impact_match": true
+    },
+    {
+      "seed": 4713,
+      "comparison": "alternative_vs_closure",
+      "paired_impact_match": true
+    },
+    {
+      "seed": 4711,
+      "comparison": "closure_vs_baseline",
+      "paired_impact_match": true
+    },
+    {
+      "seed": 4712,
+      "comparison": "closure_vs_baseline",
+      "paired_impact_match": true
+    },
+    {
+      "seed": 4713,
+      "comparison": "closure_vs_baseline",
+      "paired_impact_match": true
+    }
+  ],
+  "limitations": [
+    "Native parsers and event pairing are shared with the existing impact layer; this cross-check independently validates SQL aggregation, joins and percentiles, not an independent event parser.",
+    "No new simulation or external reviewer session was performed."
+  ]
+}

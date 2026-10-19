@@ -6,11 +6,11 @@ vendored scenario/v1/config.xml in place.
 """
 
 import os
-import subprocess
 from functools import lru_cache
 from pathlib import Path
 
 from wrapper.docker_image import fingerprint_build_args, image_matches_source, source_fingerprint
+from wrapper.process_logging import announce, process_log_path, run_logged
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 IMAGE_TAG = "matsim-baseline"
@@ -228,15 +228,15 @@ def image_exists() -> bool:
     return image_matches_source(IMAGE_TAG, image_fingerprint())
 
 
-def build_image() -> None:
-    print(f"Building docker image '{IMAGE_TAG}' (first run only - Maven has to download MATSim + contribs, can take a while)...")
-    subprocess.run(
+def build_image(*, log_path: Path | None = None) -> None:
+    announce(f"Building docker image '{IMAGE_TAG}' (first run only - Maven has to download MATSim + contribs, can take a while)...")
+    run_logged(
         [
             "docker", "build", *fingerprint_build_args(image_fingerprint()),
             "-f", str(DOCKERFILE), "-t", IMAGE_TAG, str(PROJECT_ROOT),
         ],
         cwd=PROJECT_ROOT,
-        check=True,
+        log_path=log_path or process_log_path(OUTPUT_DIR, IMAGE_TAG + "_build"),
     )
 
 
@@ -244,8 +244,9 @@ def run(network_output_subdir: str, demand_output_subdir: str, output_subdir: st
         last_iteration: int = 2, random_seed: int = 4711) -> Path:
     """Runs a MATSim simulation using an already-generated network + plans
     output (both under output/), writing results to output/{output_subdir}."""
+    log_path = process_log_path(OUTPUT_DIR, output_subdir)
     if not image_exists():
-        build_image()
+        build_image(log_path=log_path)
 
     OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -274,7 +275,7 @@ def run(network_output_subdir: str, demand_output_subdir: str, output_subdir: st
         f"/app/output/{output_subdir}_config/config.xml",
     ]
 
-    print(f"Running MATSim simulation ({last_iteration} iterations)... this can take a while.")
-    subprocess.run(cmd, check=True)
+    announce(f"Running MATSim simulation (iterations 0–{last_iteration})... this can take a while.")
+    run_logged(cmd, log_path=log_path)
 
     return OUTPUT_DIR / output_subdir

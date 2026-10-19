@@ -6,14 +6,15 @@ Run with: python3 -m uvicorn wrapper.api:app --reload
 Then open http://127.0.0.1:8000/docs for interactive API docs.
 """
 
+import os
 import re
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from wrapper.runner import NetworkRunConfig, run as run_network
 from wrapper.demand_runner import DemandRunConfig, run as run_demand
@@ -29,6 +30,15 @@ from wrapper.pipeline import (
 )
 from wrapper.preflight import check_system
 from wrapper.runs import list_runs, result_payload
+from wrapper.ifline import (
+    available_baselines,
+    list_scenarios as list_ifline_scenarios,
+    network_map as ifline_network_map,
+    new_scenario_id,
+    resolve_run_assets,
+    run_ifline_scenario,
+    validate_intervention,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -113,6 +123,63 @@ class AnalyzeRequest(BaseModel):
 
 class PipelineRequest(BaseModel):
     region: str = DEFAULT_REGION_KEY
+
+
+class IfLineInterventionRequest(BaseModel):
+    type: str
+    link_id: Optional[str] = None
+    value: Optional[float] = None
+    include_reverse: bool = True
+    points: Optional[list[list[float]]] = None
+    speed_kph: Optional[float] = None
+    lanes: Optional[float] = None
+    capacity_per_hour: Optional[float] = None
+    bidirectional: bool = True
+    snap_tolerance_m: Optional[float] = None
+    modes: Optional[list[str]] = None
+
+
+class IfLineRequest(BaseModel):
+    baseline_run: str
+    name: str
+    intervention: IfLineInterventionRequest
+
+
+class PlanRequest(BaseModel):
+    baseline_run: str
+    name: str = '城市交通概念方案'
+    plan: dict
+    check_token: Optional[str] = None
+    acknowledge_conflicts: bool = False
+
+
+@app.post('/ifline/plan/check')
+def check_city_plan(req: PlanRequest):
+    from wrapper.planning import check_plan
+    try:
+        _, report = check_plan(req.baseline_run, req.plan)
+        return report
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post('/ifline/plan/run')
+def run_city_plan(req: PlanRequest):
+    report = check_city_plan(req)
+    if req.check_token != report['token']:
+        raise HTTPException(status_code=409, detail='方案或基线已变化，请重新检查')
+    if report['conflicts'] and not req.acknowledge_conflicts:
+        raise HTTPException(status_code=400, detail='请先确认建筑/用地冲突风险')
+    if not 2 <= len(req.name.strip()) <= 80:
+        raise HTTPException(status_code=400, detail='方案名称需要 2–80 个字符')
+    scenario_id,job_id=new_scenario_id(),new_job_id()
+    spec={**report['plan'],'check_token':report['token'],
+          'acknowledge_conflicts':req.acknowledge_conflicts}
+    submit_with_id(job_id,lambda:run_ifline_scenario(req.baseline_run,req.name,spec,
+                   scenario_id=scenario_id,job_id=job_id),run_id=scenario_id)
+    return {'job_id':job_id,'run_id':scenario_id}
 
 
 @app.post("/network")
@@ -209,6 +276,12 @@ def analyze(req: AnalyzeRequest):
     }
 
 
+@app.get("/health")
+def health():
+    # Cheap, read-only launcher probe. Do not inspect Docker or expose job data.
+    return {"service": "matsim-unified-framework", "pid": os.getpid()}
+
+
 @app.get("/system/status")
 def system_status():
     """Read-only preflight check used by the UI before starting a long job."""
@@ -266,6 +339,100 @@ def start_pipeline(req: PipelineRequest):
     return {"job_id": job_id, "run_id": run_id}
 
 
+@app.get("/ifline/baselines")
+def ifline_baselines():
+    """Completed auditable runs that can be branched without regenerating demand."""
+    return {"baselines": available_baselines()}
+
+
+@app.get("/ifline/network/{run_name}")
+def ifline_network(run_name: str):
+    """Car-link geometry and attributes used by the browser road picker."""
+    try:
+        return ifline_network_map(run_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/ifline/scenarios")
+def ifline_scenarios(limit: int = 50):
+    return {"scenarios": list_ifline_scenarios(limit=max(1, min(limit, 100)))}
+
+
+@app.get("/ifline/impact")
+def planning_impact(baseline: str, proposal: str, start_s: float = 0,
+                    end_s: float = 108000, mode: str = "car", links: str = ""):
+    """Read-only, matched-input comparison; never queues a simulation."""
+    from wrapper.impact import analyze_impact
+    try:
+        # The analysis contract is already JSON-native and has no response
+        # model. Avoid FastAPI's second recursive conversion of every link;
+        # JSONResponse still rejects non-finite numbers. Never cache evidence.
+        payload = analyze_impact(baseline, proposal, start_s=start_s, end_s=end_s,
+                                 mode=mode, link_ids=links.split(",") if links else None)
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/ifline/planning-cases")
+def list_planning_cases(limit: int = 20):
+    from wrapper.planning_catalog import planning_cases
+    try:
+        return planning_cases(limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/ifline/coverage/{run_name}")
+def planning_coverage(run_name: str):
+    from wrapper.coverage_audit import audit_coverage
+    try:
+        assets = resolve_run_assets(run_name)
+        return audit_coverage(assets["network_file"], assets["plans_file"])
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/ifline/run")
+def start_ifline(req: IfLineRequest):
+    """Create a controlled branch: same demand/seed, explicit network change."""
+    try:
+        resolve_run_assets(req.baseline_run)
+        spec = validate_intervention(req.intervention.model_dump())
+        if spec["type"] != "new_road":
+            available_ids = {link["id"] for link in ifline_network_map(req.baseline_run)["links"]}
+            if spec["link_id"] not in available_ids:
+                raise ValueError("Selected link is not an available car link in this baseline")
+        if not 2 <= len(" ".join(req.name.strip().split())) <= 80:
+            raise ValueError("Scenario name must contain 2 to 80 visible characters")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    scenario_id = new_scenario_id()
+    job_id = new_job_id()
+    submit_with_id(
+        job_id,
+        lambda: run_ifline_scenario(
+            req.baseline_run,
+            req.name,
+            spec,
+            scenario_id=scenario_id,
+            job_id=job_id,
+        ),
+        run_id=scenario_id,
+    )
+    return {"job_id": job_id, "run_id": scenario_id}
+
+
 @app.get("/jobs/{job_id}")
 def job_status(job_id: str):
     job = get_job(job_id)
@@ -301,3 +468,34 @@ def recent_jobs(limit: int = 20):
 @app.get("/", response_class=HTMLResponse)
 def index():
     return (STATIC_DIR / "index.html").read_text()
+
+
+class AssistantRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1500)
+    engine: str = "ai"
+
+@app.get("/assistant", response_class=HTMLResponse)
+def assistant_page():
+    return (STATIC_DIR / "assistant.html").read_text()
+
+@app.get("/assistant/status")
+def assistant_status():
+    from wrapper.ai_provider import status
+    from wrapper.assistant import get_store
+    model = status()
+    try:
+        store = get_store()
+        return {"model": model, "evidence_available": True, "evidence_mode": store.mode,
+                "runs": list(store.catalog.values()), "scope": "Imported nine-run synthetic case; read-only analysis"}
+    except Exception:
+        return {"model": model, "evidence_available": False, "runs": [], "scope": "Evidence unavailable; no inferred values"}
+
+@app.post("/assistant/ask")
+def assistant_ask(request: AssistantRequest):
+    from wrapper.assistant import ask, AssistantBusy
+    try:
+        return ask(request.question, request.engine)
+    except AssistantBusy as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

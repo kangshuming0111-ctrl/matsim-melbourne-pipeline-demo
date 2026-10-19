@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><title>Concept road geometry regression</title>
+<h1>Concept road geometry regression</h1><pre id="results">Running…</pre>
+<script src="http://127.0.0.1:8000/static/vendor/three/three.min.js"></script>
+<script src="http://127.0.0.1:8000/static/road-mesh.js"></script>
+<script>
+const results=document.getElementById('results');let checks=0;
+function assert(value,message){checks++;if(!value)throw Error(message);}
+try {
+  const ground=(x,z)=>Math.sin(x/3)*0.6+z*0.02;
+  const material=new THREE.MeshBasicMaterial({color:0x666666});
+  const start=new THREE.Vector3(0,0,0),end=new THREE.Vector3(30,0,0);
+  for(const [h0,h1] of [[0,0],[0,4],[4,4],[4,0]]) {
+    const mesh=CityRoadMesh.create(THREE,start,end,2,0.2,material,ground,h0,h1,0.3);
+    const p=mesh.geometry.attributes.position,n=mesh.geometry.attributes.normal;
+    assert([...p.array].every(Number.isFinite),'No NaN vertices');
+    for(let i=0;i<p.count;i+=4) {
+      for(const j of [i,i+1]) {
+        const x=p.getX(j),z=p.getZ(j);
+        assert(Math.abs(p.getY(j)-(ground(x,z)+h0+(h1-h0)*x/30+0.4))<1e-5,'Road top follows identical terrain + profile');
+      }
+    }
+    const index=mesh.geometry.index.array;
+    const a=new THREE.Vector3().fromBufferAttribute(p,index[0]),b=new THREE.Vector3().fromBufferAttribute(p,index[1]),c=new THREE.Vector3().fromBufferAttribute(p,index[2]);
+    assert(b.sub(a).cross(c.sub(a)).y>0,'Top faces point upward');
+    assert([...n.array].every(Number.isFinite),'Normals finite');
+    assert(material.depthTest && material.depthWrite,'Solid does not draw through occluders');
+    assert(mesh.geometry.boundingSphere.radius>0,'Valid culling bound');
+    mesh.geometry.dispose();
+  }
+  assert(CityRoadMesh.create(THREE,start,start,2,0.2,material,ground)===null,'Zero-length rejected');
+  results.textContent=`PASS: ${checks} assertions — ground, ascending ramp, deck, descending ramp; all use the same terrain sampler.\nNo terrain or building geometry is altered.`;
+} catch(e) {results.textContent='FAIL: '+e.stack;}
+</script>

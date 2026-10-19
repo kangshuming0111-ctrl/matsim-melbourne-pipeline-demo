@@ -1,0 +1,115 @@
+{
+  "release": "2026.10-p0",
+  "local_date": "2026-10-18",
+  "python_tests": {
+    "run": 317,
+    "passed": 316,
+    "skipped": 1,
+    "failed": 0,
+    "skip_reason": "Optional osmium dependency absent"
+  },
+  "browser_regression": {
+    "formatter_assertions": 8,
+    "renderer_assertions": 3,
+    "status": "passed"
+  },
+  "portfolio_browser_checks": {
+    "seed_and_metric_checks": 4,
+    "quality_states": 4,
+    "responsive_section_checks": 15,
+    "page_errors": 0,
+    "status": "passed"
+  },
+  "native_recomputation": [
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_baseline_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_closure_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_alternative_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_baseline_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_closure_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_alternative_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_baseline_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_closure_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    },
+    {
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_alternative_a01_sim",
+      "unchanged_complete_data_metrics": true,
+      "valid_time_rows": 3623,
+      "valid_distance_rows": 3623,
+      "missing_or_invalid_rows": 0
+    }
+  ],
+  "mean_differences": {
+    "closure_minus_baseline_s": 7.529978586723776,
+    "alternative_minus_baseline_s": 7.627765881513199,
+    "alternative_minus_closure_s": 0.0977872947894222
+  },
+  "scope": "Local source changes, existing native-data recomputation and browser checks. No new full simulation in this P0 turn; no remote CI claim.",
+  "review_status": "Automated checks and authoring-agent visual review completed; no independent human recruiter review claimed.",
+  "source_archive_verification": {
+    "manifest_files": 353,
+    "zip_crc": "passed",
+    "sha256_manifest": "passed",
+    "fresh_extraction_tests": {
+      "run": 317,
+      "passed": 316,
+      "skipped": 1,
+      "failed": 0
+    },
+    "scope": "Fresh source extraction using the existing project virtual environment; not a fresh dependency install"
+  },
+  "offline_delivery": {
+    "status": "passed",
+    "offline_without_network": true,
+    "embedded_runs": 9,
+    "video_duration_seconds": 127.88,
+    "page_errors": [],
+    "remote_requests": []
+  }
+}

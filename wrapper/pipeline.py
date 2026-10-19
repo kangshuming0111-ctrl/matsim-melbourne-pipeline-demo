@@ -8,6 +8,7 @@ as equivalent validation evidence until each has its own successful run record.
 from __future__ import annotations
 
 import uuid
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -16,18 +17,18 @@ from wrapper.analyze import compute_summary_data, summarize
 from wrapper.baseline_runner import run as run_simulation
 from wrapper.jobs import set_stage
 from wrapper.preflight import DEMAND_DATA_FILES, check_system
-from wrapper.provenance import OUTPUT_DIR, RunRecorder, file_evidence
+from wrapper.provenance import OUTPUT_DIR, RunRecorder, file_evidence, sha256_file
 from wrapper.scenario import cross_check_coverage, run_scenario
-from wrapper.skyline import render_skyline_scene
+from wrapper.skyline import render_skyline_scene, landmark_cache_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
 AVAILABLE_REGIONS = {
     "cbd": {
-        "label": "墨尔本市中心 CBD",
+        "label": "墨尔本市中心 CBD（活动域 v2，实验）",
         "file": "sample_region.geojson",
-        "validation": "verified_demo",
+        "validation": "experimental",
     },
     "inner_north": {
         "label": "内城北区（实验）",
@@ -57,7 +58,9 @@ AVAILABLE_REGIONS = {
 }
 DEFAULT_REGION_KEY = "cbd"
 
-VERIFIED_DEMO_PROFILE_ID = "cbd_small_v1"
+CBD_ACTIVITY_DOMAIN_PROFILE_ID = "cbd_activity_domain_v2"
+CBD_MAX_NETWORK_AREA_KM2 = 25.0
+DEFAULT_NETWORK_BUFFER_M = 500
 DEFAULT_SAMPLE_PERCENT = 5
 DEFAULT_NUM_PLANS = 500
 DEFAULT_BUFFER_DIST = 500
@@ -80,7 +83,7 @@ def _input_snapshot(region_key: str) -> dict:
         "demand_data": [file_evidence(DATA_DIR / relative) for relative in DEMAND_DATA_FILES],
         "osm_extract_cache": file_evidence(DATA_DIR / "geofabrik_victoria-latest.osm.pbf"),
         "terrain": file_evidence(DATA_DIR / "dem" / "fabdem_melbourne.tif"),
-        "landmarks": file_evidence(DATA_DIR / "landmarks" / f"{region_key}.json"),
+        "landmarks": file_evidence(landmark_cache_path(region_key, DATA_DIR / "landmarks"), checksum=True),
         "note": (
             "ABS/VISTA-derived inputs generate synthetic agents; they are not individual "
             "people or observed personal trajectories."
@@ -114,6 +117,33 @@ def _artifacts(run_name: str) -> dict:
     }
 
 
+def _record_domain_artifacts(recorder: RunRecorder, run_name: str) -> dict:
+    """Snapshot available domain evidence, including a failed pre-simulation gate.
+
+    Copies belong only to this newly allocated run record. Keep hashes/paths in
+    artifacts so failure records retain the same evidence as successful ones.
+    """
+    source_dir = OUTPUT_DIR / f"{run_name}_domain"
+    target_dir = recorder.record_dir / "artifacts"
+    target_dir.mkdir(exist_ok=True)
+    result = {}
+    for key, name in (("network_domain_manifest", "domain_manifest.json"),
+                      ("network_coverage_after", "coverage_after.json")):
+        source, destination = source_dir / name, target_dir / name
+        if source.is_file():
+            content = source.read_bytes()
+            if destination.exists():
+                if destination.read_bytes() != content:
+                    raise RuntimeError("Recorded domain evidence changed after freezing.")
+            else:
+                with destination.open("xb") as stream:
+                    stream.write(content)
+            if sha256_file(source) != sha256_file(destination):
+                raise RuntimeError("Domain evidence snapshot hash mismatch.")
+        result[key] = file_evidence(destination, checksum=True)
+    return result
+
+
 def _verify_completed_run(run_name: str, summary: dict, artifacts: dict) -> dict:
     missing = [
         key for key, item in artifacts.items()
@@ -140,6 +170,8 @@ def _verify_completed_run(run_name: str, summary: dict, artifacts: dict) -> dict
 
     return {
         "passed": True,
+        "validation_status": "experimental",
+        "scope": "artifact_and_execution_checks_only; no transport-validity or convergence claim",
         "checks": {
             "required_artifacts_present": True,
             "positive_agent_count": summary["person_count"],
@@ -160,11 +192,8 @@ def run_full_pipeline(
         raise ValueError(f"Unknown region_key '{region_key}'; available: {list(AVAILABLE_REGIONS)}")
     run_name = run_name or new_run_name(region_key)
     region = AVAILABLE_REGIONS[region_key]
-    profile_id = (
-        VERIFIED_DEMO_PROFILE_ID
-        if region["validation"] == "verified_demo"
-        else f"experimental_{region_key}_v1"
-    )
+    activity_domain = region_key == "cbd"
+    profile_id = CBD_ACTIVITY_DOMAIN_PROFILE_ID if activity_domain else f"experimental_{region_key}_v1"
 
     configuration = {
         "region_key": region_key,
@@ -172,6 +201,12 @@ def run_full_pipeline(
         "osm_pbf_file": VICTORIA_OSM_PBF,
         "output_crs": 7899,
         "buffer_distance_m": DEFAULT_BUFFER_DIST,
+        "sa1_selection_buffer_m": DEFAULT_BUFFER_DIST,
+        "network_domain_policy": "activity_bbox" if activity_domain else "region",
+        "network_buffer_m": DEFAULT_NETWORK_BUFFER_M if activity_domain else DEFAULT_BUFFER_DIST,
+        "max_network_area_km2": CBD_MAX_NETWORK_AREA_KM2 if activity_domain else None,
+        "coverage_policy": "all_activities_finite_and_100_percent_node_bbox" if activity_domain else "legacy_diagnostic_only",
+        "profile_validation": "experimental_pending_end_to_end_review",
         "sample_percent": DEFAULT_SAMPLE_PERCENT,
         "planned_num_plans": DEFAULT_NUM_PLANS,
         "planned_num_plans_semantics": (
@@ -190,6 +225,10 @@ def run_full_pipeline(
         "simulation_config": f"output/{run_name}_sim_config/config.xml",
         "run_record": f"output/run_records/{run_name}/run_manifest.json",
     }
+    if activity_domain:
+        outputs.update(
+            network_domain_manifest=f"output/run_records/{run_name}/artifacts/domain_manifest.json",
+            network_coverage_after=f"output/run_records/{run_name}/artifacts/coverage_after.json")
     recorder = RunRecorder(
         run_name,
         job_id=job_id,
@@ -215,16 +254,33 @@ def run_full_pipeline(
     try:
         ui_stage("生成路网和人口数据中...")
         recorder.stage("network_and_demand", "running")
-        network_dir, demand_dir = run_scenario(
-            region_file=region["file"],
-            output_name=run_name,
-            buffer_dist=DEFAULT_BUFFER_DIST,
-            num_plans=DEFAULT_NUM_PLANS,
-            sample_percent=DEFAULT_SAMPLE_PERCENT,
-            demand_random_seed=DEFAULT_DEMAND_RANDOM_SEED,
-            osm_pbf_file=VICTORIA_OSM_PBF,
-        )
-        coverage = cross_check_coverage(network_dir, demand_dir)
+        try:
+            network_dir, demand_dir = run_scenario(
+                region_file=region["file"], output_name=run_name,
+                buffer_dist=DEFAULT_BUFFER_DIST, num_plans=DEFAULT_NUM_PLANS,
+                sample_percent=DEFAULT_SAMPLE_PERCENT,
+                demand_random_seed=DEFAULT_DEMAND_RANDOM_SEED, osm_pbf_file=VICTORIA_OSM_PBF,
+                network_domain="activity_bbox" if activity_domain else "region",
+                network_buffer_m=DEFAULT_NETWORK_BUFFER_M,
+                max_network_area_km2=CBD_MAX_NETWORK_AREA_KM2 if activity_domain else None,
+            )
+        finally:
+            if activity_domain:
+                recorder.set_artifacts(_record_domain_artifacts(recorder, run_name))
+        if activity_domain:
+            domain_manifest = json.loads((recorder.record_dir / "artifacts/domain_manifest.json").read_text())
+            if domain_manifest.get("status") != "completed" or not domain_manifest.get("post_cleaning_gate", {}).get("passed"):
+                raise RuntimeError("Activity-domain generation did not complete its required gate.")
+            # Freeze exact files crossing the simulation seam, not merely a
+            # summary percentage or a mutable path from a previous stage.
+            if (sha256_file(demand_dir / "8.xml/plan.xml") != domain_manifest["plans"]["sha256"]
+                    or sha256_file(network_dir / "network.xml") != domain_manifest["network"]["sha256"]):
+                raise RuntimeError("Network or plans changed after the domain gate.")
+            coverage = 1.0
+            recorder.add_input("fixed_plans", domain_manifest["plans"])
+            recorder.add_input("generated_network_domain", domain_manifest["region"])
+        else:
+            coverage = cross_check_coverage(network_dir, demand_dir)
         recorder.add_input(
             "generated_sa1_subset",
             file_evidence(DATA_DIR / f"{run_name}_sa1_subset.csv", checksum=True),
@@ -232,7 +288,7 @@ def run_full_pipeline(
         recorder.stage(
             "network_and_demand",
             "completed",
-            f"Bounding-box coverage check: {coverage:.1%}",
+            f"Bounding-box coverage {'gate passed' if activity_domain else 'diagnostic'}: {coverage:.1%}; profile remains experimental",
         )
 
         ui_stage("跑仿真中...")
@@ -252,6 +308,7 @@ def run_full_pipeline(
         summary = compute_summary_data(f"{run_name}_sim")
         render_skyline_scene(f"{run_name}_sim", region_key=region_key)
         artifacts = _artifacts(run_name)
+        artifacts.update(recorder.data["artifacts"])
         recorder.set_artifacts(artifacts)
         verification = _verify_completed_run(run_name, summary, artifacts)
         verification["checks"]["network_demand_bbox_coverage"] = round(coverage, 6)
@@ -273,7 +330,7 @@ def run_full_pipeline(
             "scorestats_chart_url": f"/results/{run_name}_sim/scorestats.png",
             "skyline_scene_url": f"/results/{run_name}_sim/skyline_scene.json",
         })
-        ui_stage("完成并通过产物核对")
+        ui_stage("完成产物核对；实验性 profile，非交通有效性认证")
         return summary
     except BaseException as exc:
         recorder.fail(exc)
@@ -282,7 +339,7 @@ def run_full_pipeline(
 
 
 def run_verified_demo() -> dict:
-    """Run only the fixed CBD profile after the same preflight used by the UI."""
+    """Legacy CLI entry name; the current CBD activity-domain profile is experimental."""
     readiness = check_system()
     if not readiness["can_run_pipeline"]:
         blocked = [

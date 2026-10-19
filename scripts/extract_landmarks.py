@@ -1,7 +1,8 @@
 """One-off data-prep script: pulls real landmarks (parks, libraries, tram
 lines, commercial/retail zones, building footprints) out of the cached
 Victoria OSM extract (data/geofabrik_victoria-latest.osm.pbf) for a given
-region's bounding box, and caches the result to data/landmarks/<region_key>.json.
+region's bounding box, and caches the result to data/landmarks/v2/<region_key>.json.
+Closed ways and multipolygon relations include interior rings; water is included.
 
 Run manually whenever a new region needs landmarks - NOT run automatically
 by the pipeline (building the node-location index for the 236MB PBF can take
@@ -14,11 +15,16 @@ Usage:
 or for one custom bounding box:
     python3 scripts/extract_landmarks.py cbd 144.945 144.978 -37.832 -37.802
                                           ^region_key  ^min_lon ^max_lon ^min_lat ^max_lat
+
+For an expanded displayed network (keeps old v2 caches intact):
+    python3 scripts/extract_landmarks.py --scene RUN_sim --region cbd
+Bounds come from that scene's full terrain extent, not the old population bbox.
 """
 
 import hashlib
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import osmium
@@ -26,6 +32,11 @@ import osmium
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PBF_PATH = PROJECT_ROOT / "data" / "geofabrik_victoria-latest.osm.pbf"
 LANDMARKS_DIR = PROJECT_ROOT / "data" / "landmarks"
+# Keep legacy caches intact. Only a successful extraction publishes v2 caches.
+LANDMARKS_DIR = LANDMARKS_DIR / "v2"
+sys.path.insert(0, str(PROJECT_ROOT))
+from wrapper.landmark_geometry import project_clip_areas
+from shapely.geometry import LineString, box
 
 PRESET_REGION_FILES = {
     "cbd": "sample_region.geojson",
@@ -156,6 +167,8 @@ class LandmarkHandler(osmium.SimpleHandler):
         self.tram_ways = []
         self.commercial = []
         self.buildings = []
+        self.water = []
+        self.diagnostics = Counter()
 
     def _in_bbox(self, lon, lat):
         min_lon, max_lon, min_lat, max_lat = self.bounds
@@ -175,42 +188,60 @@ class LandmarkHandler(osmium.SimpleHandler):
 
     def way(self, w):
         tags = dict(w.tags)
-        is_park = tags.get("leisure") in ("park", "garden")
         is_tram = tags.get("railway") == "tram"
-        is_commercial = tags.get("landuse") in ("commercial", "retail")
-        is_library = tags.get("amenity") == "library"
-        is_building = "building" in tags and tags["building"] != "no"
-        if not (is_park or is_tram or is_commercial or is_library or is_building):
+        # Areas are assembled in area(), including relations. Do not also
+        # emit the member ways as independent, duplicate filled polygons.
+        if not is_tram:
             return
         coords = []
         try:
             for n in w.nodes:
-                if n.location.valid():
-                    coords.append((n.location.lon, n.location.lat))
+                if not n.location.valid():
+                    self.diagnostics["incomplete_tram"] += 1
+                    return
+                coords.append((n.location.lon, n.location.lat))
         except osmium.InvalidLocationError:
             return
-        if not coords or not any(self._in_bbox(lon, lat) for lon, lat in coords):
+        if len(coords) < 2 or not _entry_in_bounds({"coords": coords}, self.bounds, area=False):
             return
-        entry = {"coords": coords, "name": tags.get("name", "")}
-        if is_park:
-            self.parks.append(entry)
-        if is_tram:
-            self.tram_ways.append(entry)
-        if is_commercial:
-            self.commercial.append(entry)
-        if is_library:
-            self.libraries.append({"lon": coords[0][0], "lat": coords[0][1], "name": tags.get("name", "")})
-        if is_building:
-            # Building footprints are closed ways (first/last node coincide);
-            # a non-closed way tagged building=* is usually a data error or
-            # a fragment of a multipolygon relation we're not handling here -
-            # skip it rather than render a broken/open shape.
-            if len(coords) >= 4 and coords[0] == coords[-1]:
+        self.tram_ways.append({"coords": coords, "name": tags.get("name", ""), "osm_id": f"way/{w.id}"})
+
+    def area(self, a):
+        tags = dict(a.tags)
+        is_park = tags.get("leisure") in ("park", "garden")
+        is_commercial = tags.get("landuse") in ("commercial", "retail")
+        is_library = tags.get("amenity") == "library"
+        is_building = tags.get("building", "no") != "no"
+        is_water = tags.get("natural") == "water" or tags.get("waterway") == "riverbank"
+        if not (is_park or is_commercial or is_library or is_building or is_water):
+            return
+        source_id = f"{'way' if a.from_way() else 'relation'}/{a.orig_id()}"
+        for outer in a.outer_rings():
+            try:
+                rings = [[(n.lon, n.lat) for n in ring] for ring in [outer, *a.inner_rings(outer)]]
+            except osmium.InvalidLocationError:
+                self.diagnostics["incomplete_area"] += 1
+                continue
+            entry = {"coords": rings[0], "holes": rings[1:],
+                     "name": tags.get("name", ""), "osm_id": source_id}
+            # Bounding-box intersection also keeps areas enclosing the view.
+            # Retain complete rings here; exact clipping belongs to export.
+            if not _entry_in_bounds(entry, self.bounds):
+                continue
+            if is_park: self.parks.append(entry)
+            if is_commercial: self.commercial.append(entry)
+            if is_water: self.water.append(entry)
+            if is_library:
+                parts, _ = project_clip_areas([entry], _xy_bounds(self.bounds))
+                if parts:
+                    pt = parts[0][1].representative_point()
+                    self.libraries.append({"lon": pt.x, "lat": pt.y, "name": entry["name"]})
+            if is_building:
                 kind = _building_kind(tags)
                 self.buildings.append({
-                    "coords": coords,
+                    **entry,
                     "height": _building_height(tags),
-                    "color": _building_color(tags, coords, kind),
+                    "color": _building_color(tags, rings[0], kind),
                     "kind": kind,
                     "roof": tags.get("roof:shape", "flat"),
                     "material": tags.get("building:material", ""),
@@ -244,31 +275,50 @@ def _geojson_bounds(path: Path) -> tuple[float, float, float, float]:
     )
 
 
-def _entry_in_bounds(entry: dict, bounds: tuple[float, float, float, float]) -> bool:
+def _xy_bounds(bounds):
+    return (bounds[0], bounds[2], bounds[1], bounds[3])
+
+
+def _entry_in_bounds(entry: dict, bounds: tuple[float, float, float, float], area=True) -> bool:
     min_lon, max_lon, min_lat, max_lat = bounds
     if entry.get("coords"):
-        return any(min_lon <= lon <= max_lon and min_lat <= lat <= max_lat
-                   for lon, lat in entry["coords"])
+        coords = entry["coords"]
+        xs, ys = zip(*coords)
+        if max(xs) < min_lon or min(xs) > max_lon or max(ys) < min_lat or min(ys) > max_lat:
+            return False
+        if not area:
+            return LineString(coords).intersects(box(*_xy_bounds(bounds)))
+        parts, _ = project_clip_areas([entry], _xy_bounds(bounds))
+        return bool(parts)
     lon, lat = entry.get("lon"), entry.get("lat")
     return lon is not None and lat is not None and min_lon <= lon <= max_lon and min_lat <= lat <= max_lat
 
 
 def _write_cache(region_key: str, h: LandmarkHandler,
-                 bounds: tuple[float, float, float, float]) -> Path:
+                 bounds: tuple[float, float, float, float], *, directory=None, evidence=None) -> Path:
     payload = {
         "parks": [x for x in h.parks if _entry_in_bounds(x, bounds)],
         "libraries": [x for x in h.libraries if _entry_in_bounds(x, bounds)],
         "shops": [x for x in h.shops if _entry_in_bounds(x, bounds)],
-        "tram_ways": [x for x in h.tram_ways if _entry_in_bounds(x, bounds)],
+        "tram_ways": [x for x in h.tram_ways if _entry_in_bounds(x, bounds, area=False)],
         "commercial": [x for x in h.commercial if _entry_in_bounds(x, bounds)],
         "buildings": [x for x in h.buildings if _entry_in_bounds(x, bounds)],
+        "water": [x for x in h.water if _entry_in_bounds(x, bounds)],
+        "metadata": {"schema_version": 2, "source": PBF_PATH.name,
+                     "bounds": bounds, "diagnostics": dict(h.diagnostics),
+                     "area_handling": "OSM closed ways + multipolygon relations, with inner rings",
+                     **(evidence or {})},
     }
-    LANDMARKS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = LANDMARKS_DIR / f"{region_key}.json"
-    out_path.write_text(json.dumps(payload))
+    directory = directory if directory is not None else LANDMARKS_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    out_path = directory / f"{region_key}.json"
+    temp = out_path.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(payload))
+    temp.replace(out_path)
     print(f"{region_key}: parks={len(payload['parks'])} libraries={len(payload['libraries'])} "
           f"shops={len(payload['shops'])} tram_ways={len(payload['tram_ways'])} "
-          f"commercial={len(payload['commercial'])} buildings={len(payload['buildings'])}")
+          f"commercial={len(payload['commercial'])} buildings={len(payload['buildings'])} "
+          f"water={len(payload['water'])}")
     print(f"written to {out_path}")
     return out_path
 
@@ -286,10 +336,38 @@ def main():
         print(f"Missing {PBF_PATH}. Run a network build once to download the Victoria OSM extract.")
         sys.exit(1)
 
+    if '--scene' in sys.argv[1:]:
+        import argparse
+        from wrapper.skyline import scene_geographic_bounds
+        from wrapper.runs import validate_run_name
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument('--scene', required=True)
+        parser.add_argument('--region', required=True)
+        args = parser.parse_args()
+        run, region = validate_run_name(args.scene), validate_run_name(args.region)
+        source = PROJECT_ROOT / 'output' / run / 'skyline_scene.json'
+        source_bytes = source.read_bytes()
+        scene = json.loads(source_bytes)
+        west, east, south, north = scene_geographic_bounds(scene['coordinate_transform'], scene['terrain'])
+        # A small round-off margin, not an independently guessed region buffer.
+        bounds = (west-0.00001, east+0.00001, south-0.00001, north+0.00001)
+        directory = LANDMARKS_DIR.parent / 'expanded'
+        previous = directory / f'{region}.json'
+        if previous.is_file():
+            old = json.loads(previous.read_text())['metadata']['bounds']
+            bounds = (min(bounds[0],old[0]), max(bounds[1],old[1]),
+                      min(bounds[2],old[2]), max(bounds[3],old[3]))
+        print(f'Assembling local OSM for scene {run}, W/E/S/N={bounds}', flush=True)
+        h = LandmarkHandler(*bounds)
+        h.apply_file(str(PBF_PATH), locations=True)
+        _write_cache(region, h, bounds, directory=directory, evidence={
+            'extent_source_scene':run, 'extent_source_sha256':hashlib.sha256(source_bytes).hexdigest(),
+            'extent_rule':'full displayed terrain extent, union with previous expanded extent'})
+        return
+
     if sys.argv[1:] == ["--all"]:
-        # Scan Victoria once, then split the collected features into all six
-        # overlapping regional caches.  The previous implementation scanned
-        # the same 236MB PBF six separate times and could take half an hour.
+        # Share one area-assembly job across all six regional caches. Osmium
+        # internally reads twice to assemble multipolygon relations.
         region_bounds = {
             region_key: _geojson_bounds(PROJECT_ROOT / "data" / filename)
             for region_key, filename in PRESET_REGION_FILES.items()
@@ -300,7 +378,7 @@ def main():
             min(b[2] for b in region_bounds.values()),
             max(b[3] for b in region_bounds.values()),
         )
-        print("Scanning Victoria OSM once for all preset regions...")
+        print("Assembling Victoria OSM areas for all preset regions (two-pass area reader)...")
         h = LandmarkHandler(*union_bounds)
         h.apply_file(str(PBF_PATH), locations=True)
         for region_key, bounds in region_bounds.items():

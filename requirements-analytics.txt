@@ -1,0 +1,2 @@
+# Optional local SQL analysis; product/replay dependencies remain separate.
+duckdb==1.5.6

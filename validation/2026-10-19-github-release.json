@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-19",
+  "base_commit": "40d47dfb4b99ef7fc08696495222d217ecc2e2c3",
+  "full_python_suite": {
+    "run": 368,
+    "passed": 367,
+    "skipped": 1,
+    "failed": 0,
+    "skip_reason": "optional osmium dependency absent",
+    "execution": "Fresh assembled repository, WSL Python 3.12, existing product environment",
+    "seconds": 3.679
+  },
+  "native_simulations_started": 0,
+  "model_evaluation_rerun": false,
+  "frozen_core_unchanged": true,
+  "frozen_files_checked": 16,
+  "public_showcase": "https://matsim-melbourne-p2.blueheron8.chatgpt.site",
+  "remote_ci": "pending upload; inspect GitHub Actions for current status"
+}

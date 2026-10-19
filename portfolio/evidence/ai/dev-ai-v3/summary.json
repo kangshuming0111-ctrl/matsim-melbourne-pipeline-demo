@@ -1,0 +1,52 @@
+{
+  "suite": "P2 internal evaluation v1",
+  "split": "development",
+  "engine": "ai",
+  "count": 30,
+  "passed": 30,
+  "all_case_accuracy": 1.0,
+  "numeric_answerable_count": 20,
+  "numeric_answerable_correct": 20,
+  "numeric_answerable_accuracy": 1.0,
+  "ai_numeric_without_fallback_correct": 20,
+  "ai_numeric_without_fallback_accuracy": 1.0,
+  "insufficient_evidence_cases": 9,
+  "correct_refusals": 9,
+  "citation_failures": 0,
+  "ai_used_cases": 21,
+  "fallback_cases": 0,
+  "explicit_parameter_corrected_cases": 8,
+  "latency_ms": {
+    "all_p50": 6466.172500000001,
+    "all_p95": 8308.583799999997,
+    "model_invoked_p50": 6869.224,
+    "model_invoked_p95": 8724.769
+  },
+  "api_cost_usd_total": 0,
+  "api_cost_usd_per_question": 0,
+  "cost_scope": "Local inference API fee only; electricity/hardware unmeasured. Download/storage/setup costs excluded.",
+  "model": {
+    "available": true,
+    "provider": "ollama-local",
+    "model": "qwen3:4b-instruct-2507-q4_K_M",
+    "version": "0.40.6",
+    "model_digest": "0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0",
+    "api_cost_usd": 0,
+    "cost_note": "Local inference: no API fee; electricity and hardware are not priced."
+  },
+  "wall_time_seconds": 147.6344278150009,
+  "code_sha256": {
+    "wrapper/assistant.py": "0af0f32002c9d6653c10f7b36bb3b84487944a42b38086d84703bae6058ab698",
+    "wrapper/ai_provider.py": "84e6ead23abad2bdf64522bc430892227b0ec3a61ab2f1a8e493156adf16712f",
+    "scripts/evaluate_assistant.py": "83737a32b1721ac87c423fe54823bf5c6bc05e35e89bd591ecfeb7dcffc6d6d1"
+  },
+  "suite_sha256": "0b9b454546f7587a87cc6ebd24192a69545514fd138979c23624837bbd3ea49d",
+  "created_at_utc": "2026-10-19T09:46:36.248956+00:00",
+  "failed_ids": [],
+  "limitations": [
+    "Small same-author internal suite; not an external benchmark or production reliability guarantee.",
+    "Policy refusals can occur before the model; guarded refusals are not claims about unguarded model safety.",
+    "Evidence-bound explanations use reviewed claim blocks; the model routes and organizes, not unrestricted causal writing.",
+    "Reported accuracy is the guarded system, including deterministic literal-parameter constraints; not raw model accuracy."
+  ]
+}

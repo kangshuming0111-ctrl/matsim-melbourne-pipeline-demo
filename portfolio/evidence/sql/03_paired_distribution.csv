@@ -1,0 +1,10 @@
+case_id,seed,label,eligible_keys,unmatched_keys,invalid_pairs,paired_keys,mode_switches,mean_delta_s,median_delta_s,p05_delta_s,p95_delta_s,min_delta_s,max_delta_s
+cbd_expanded1037_detour_10it_review_r02,4711,alternative_vs_baseline,934,0,0,934,0,7.822269807280514,0.0,-24.0,64.34999999999991,-100.0,130.0
+cbd_expanded1037_detour_10it_review_r02,4712,alternative_vs_baseline,934,0,0,934,0,7.620985010706638,0.0,-24.0,64.34999999999991,-100.0,124.0
+cbd_expanded1037_detour_10it_review_r02,4713,alternative_vs_baseline,934,0,0,934,0,7.440042826552463,0.0,-25.0,64.34999999999991,-100.0,124.0
+cbd_expanded1037_detour_10it_review_r02,4711,alternative_vs_closure,934,0,0,934,0,0.11670235546038545,0.0,0.0,1.0,-34.0,109.0
+cbd_expanded1037_detour_10it_review_r02,4712,alternative_vs_closure,934,0,0,934,0,0.0974304068522484,0.0,0.0,1.0,-34.0,109.0
+cbd_expanded1037_detour_10it_review_r02,4713,alternative_vs_closure,934,0,0,934,0,0.07922912205567452,0.0,0.0,1.0,-34.0,109.0
+cbd_expanded1037_detour_10it_review_r02,4711,closure_vs_baseline,934,0,0,934,0,7.705567451820128,0.0,-21.0,62.04999999999973,-100.0,130.0
+cbd_expanded1037_detour_10it_review_r02,4712,closure_vs_baseline,934,0,0,934,0,7.5235546038543895,0.0,-23.349999999999994,62.04999999999973,-100.0,124.0
+cbd_expanded1037_detour_10it_review_r02,4713,closure_vs_baseline,934,0,0,934,0,7.360813704496788,0.0,-24.0,62.04999999999973,-100.0,124.0

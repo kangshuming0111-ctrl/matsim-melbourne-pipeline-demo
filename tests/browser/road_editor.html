@@ -1,0 +1,94 @@
+<!doctype html><meta charset="utf-8"><title>Direct road editor regression</title>
+<style>body{font:14px system-ui}#roadProfile{width:320px;height:180px}pre{white-space:pre-wrap}</style>
+<h1>Road editor: event ownership and geometry preservation</h1><pre id="results">Running…</pre>
+<div id="fixture"></div>
+<input id="roadSnapEnabled" type="checkbox" checked><input id="iflineNewRoadLanes" value="2">
+<input id="iflineNewRoadBidirectional" type="checkbox" checked><input id="roadBridgeHeight" value="8">
+<button id="roadEditUndo"></button><button id="roadEditRedo"></button><button id="roadMakeBridge"></button>
+<div id="roadEditorReadout"></div><svg id="roadProfile" viewBox="0 0 320 180"></svg><div id="roadProfileHint"></div>
+<script src="http://127.0.0.1:8000/static/vendor/three/three.min.js"></script>
+<script src="http://127.0.0.1:8000/static/vendor/three/controls/OrbitControls.js"></script>
+<script src="http://127.0.0.1:8000/static/road-design.js"></script>
+<script src="http://127.0.0.1:8000/static/road-mesh.js"></script>
+<script>
+let iflineNewRoadPoints=[],iflineStudioOpen=true,iflineStudioMode='new_road',activeViewer=null,iflineNewRoadDrawing=true,cityPlanMoveIndex=null,busy=false;
+function cityPlanBusy(){return busy;}
+function currentSceneTransform(){return {scene_units_per_metre:1};}
+function networkToScenePoint(x,y){return {x,z:y};}
+function sceneToNetworkPoint(x,z){return {x,y:z};}
+function currentNewRoadSnapTolerance(){return 120;}
+function nearestIfLineNode(x,y){const nx=x<0?-200:200;return {id:nx<0?'west':'east',x:nx,y:0,distance:Math.hypot(x-nx,y)};}
+function resnapNewRoadPoints(){iflineNewRoadPoints.forEach(p=>{p.x=p.raw_x??p.x;p.y=p.raw_y??p.y;p.scene_x=p.x;p.scene_z=p.y;});}
+function renderNewRoadOverlay(){}
+function refreshStudioRunButton(){}
+function renderNewRoadDraft(){resnapNewRoadPoints();RoadEditor.refresh();}
+function undoNewRoadPoint(){RoadEditor.remember();iflineNewRoadPoints.pop();renderNewRoadDraft();}
+</script>
+<script src="http://127.0.0.1:8000/static/road-editor.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded',async()=>{
+  const report=document.getElementById('results'),checks=[];let detach,renderer;
+  function assert(v,text){if(!v)throw Error(text);checks.push(text);}
+  const frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  try{
+    activeViewer=new THREE.Scene();renderer=new THREE.WebGLRenderer();renderer.setSize(600,420);document.getElementById('fixture').append(renderer.domElement);
+    const canvas=renderer.domElement,camera=new THREE.PerspectiveCamera(48,600/420,1,1800);
+    camera.position.set(0,600,0.01);camera.lookAt(0,0,0);camera.updateMatrixWorld();
+    const controls=new THREE.OrbitControls(camera,canvas);controls.enableDamping=false;
+    const terrain=new THREE.Mesh(new THREE.PlaneGeometry(1000,1000,4,4),new THREE.MeshBasicMaterial({color:0x71816b}));
+    terrain.rotation.x=-Math.PI/2;activeViewer.add(terrain);terrain.updateMatrixWorld();
+    const original=JSON.stringify(Array.from(terrain.geometry.attributes.position.array));
+    activeViewer.userData={renderer,camera,controls,terrainMesh:terrain,groundY:()=>0};
+    // Synthetic pointers have no browser capture session. Track capture here;
+    // native capture is separately exercised in the actual CBD application.
+    const captures=new Set();canvas.setPointerCapture=id=>captures.add(id);canvas.hasPointerCapture=id=>captures.has(id);canvas.releasePointerCapture=id=>captures.delete(id);
+    function screen(x,z){const v=new THREE.Vector3(x,0,z).project(camera),r=canvas.getBoundingClientRect();return [r.left+(v.x+1)*r.width/2,r.top+(1-v.y)*r.height/2];}
+    function pointer(type,x,z,extra={}){const [clientX,clientY]=screen(x,z);canvas.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,clientX,clientY,pointerId:1,pointerType:'mouse',button:0,...extra}));}
+    function click(x,z,extra){pointer('pointerdown',x,z,extra);pointer('pointerup',x,z,extra);}
+    detach=RoadEditor.attach(activeViewer);
+    pointer('pointermove',-200,0);await frame();
+    assert(activeViewer.children.some(o=>o.userData.roadHoverPreview),'Live ghost created by pointer movement');
+    assert(iflineNewRoadPoints.length===0,'Hover never enters draft');
+    click(-200,0);assert(iflineNewRoadPoints.length===1&&iflineNewRoadPoints[0].snap_enabled,'First click snaps to eligible node');
+    pointer('pointermove',200,0);await frame();
+    const ghost=activeViewer.children.find(o=>o.userData.roadHoverPreview);
+    assert(ghost.children.length===2,'Preview contains marker and width-aware road');
+    assert(ghost.children.every(o=>o.material.depthTest),'Preview respects depth occlusion');
+    click(200,0);assert(iflineNewRoadPoints.length===2,'Second click adds exactly one point');
+    for(let i=0;i<20;i++){pointer('pointermove',i*2,40);await frame();}
+    assert(activeViewer.children.filter(o=>o.userData.roadHoverPreview).length===1,'Repeated hover replaces, never accumulates geometry');
+    RoadEditor.bridge();assert(iflineNewRoadPoints.length===4,'Bridge adds both ramp shoulders');
+    assert(iflineNewRoadPoints.map(p=>p.height_m).join(',')==='0,8,8,0','Bridge endpoint heights locked to ground');
+    // The view action changes the camera; screen() projects using that view.
+    RoadEditor.view('plan');camera.updateMatrixWorld();
+    const camBefore=camera.position.toArray().join(',');
+    pointer('pointerdown',-100,0);assert(!controls.enabled,'Handle takes ownership before OrbitControls');
+    pointer('pointermove',-90,40);pointer('pointerup',-90,40);
+    assert(controls.enabled&&captures.size===0,'Release restores controls and capture');
+    assert(iflineNewRoadPoints.length===4,'Dragging never appends a point');
+    assert(Math.abs(iflineNewRoadPoints[1].y-40)<.1,'Dragging changes horizontal geometry');
+    assert(iflineNewRoadPoints[1].height_m===8,'Horizontal drag preserves elevation');
+    assert(camera.position.toArray().join(',')===camBefore,'Handle drag does not rotate camera');
+    RoadEditor.undo();assert(Math.abs(iflineNewRoadPoints[1].y)<.01,'One undo restores entire drag');
+    const before=JSON.stringify(iflineNewRoadPoints);
+    pointer('pointerdown',-100,0);pointer('pointermove',-60,30);pointer('pointercancel',-60,30);
+    assert(JSON.stringify(iflineNewRoadPoints)===before&&controls.enabled,'Pointer cancellation restores draft and controls');
+    RoadEditor.freezeHeight(1,12);assert(iflineNewRoadPoints[1].height_m===12,'Profile edit updates height');
+    assert(iflineNewRoadPoints[1].x===-100,'Profile edit leaves XY unchanged');
+    RoadEditor.undo();assert(iflineNewRoadPoints[1].height_m===8,'Profile change is undoable');
+    RoadEditor.reset();iflineNewRoadPoints=[];iflineNewRoadDrawing=true;click(-198,0,{shiftKey:true});
+    assert(iflineNewRoadPoints[0].snap_enabled===false&&Math.abs(iflineNewRoadPoints[0].x+198)<.01,'Shift preserves a free point near a node');
+    document.getElementById('roadSnapEnabled').checked=false;click(198,0);
+    assert(iflineNewRoadPoints[1].snap_enabled===false,'Snap toggle persists per-point intent');
+    const n=iflineNewRoadPoints.length;busy=true;click(0,40);assert(iflineNewRoadPoints.length===n,'Busy job locks geometry editing');busy=false;
+    activeViewer.userData.isDifferenceScene=true;click(0,40);assert(iflineNewRoadPoints.length===n,'Result view cannot become an editable draft');activeViewer.userData.isDifferenceScene=false;
+    pointer('pointermove',0,20);await frame();detach();detach=null;
+    assert(!activeViewer.children.some(o=>o.userData.roadHoverPreview),'Detach cleans transient geometry');
+    click(0,50);assert(iflineNewRoadPoints.length===n,'Detached picker no longer changes points');
+    assert(original===JSON.stringify(Array.from(terrain.geometry.attributes.position.array)),'Terrain vertex buffer is byte-for-byte unchanged');
+    report.textContent=`PASS: ${checks.length} checks\n`+checks.join('\n');
+    controls.dispose();terrain.geometry.dispose();terrain.material.dispose();
+  }catch(e){report.textContent='FAIL: '+e.stack+'\nPassed before failure:\n'+checks.join('\n');}
+  finally{detach?.();renderer?.dispose();}
+});
+</script>

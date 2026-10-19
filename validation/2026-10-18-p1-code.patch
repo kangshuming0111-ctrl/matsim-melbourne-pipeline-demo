@@ -1,0 +1,868 @@
+--- /dev/null
++++ b/wrapper/analytics.py
+@@ -0,0 +1,223 @@
++"""Transactional DuckDB ingestion of immutable completed MATSim case evidence.
++
++Only the optional analytics command imports DuckDB. The local simulator/API
++continues to work without it. Source trip/event files are never changed.
++"""
++from __future__ import annotations
++import csv
++import gzip
++import hashlib
++import heapq
++import json
++import math
++import tempfile
++from collections import Counter
++from pathlib import Path
++from xml.etree import ElementTree as ET
++
++from wrapper.measurements import parse_time, nonnegative_number, trip_mode
++from wrapper.ifline import resolve_run_assets
++from wrapper.provenance import sha256_file
++# Internal, already-tested evidence readers; no new event-pairing implementation.
++from wrapper.impact import _artifacts, _config, _verify_input_path, _network, _trips, _events
++
++ROOT=Path(__file__).resolve().parents[1]
++DEFAULT_CASE='cbd_expanded1037_detour_10it_review_r02'
++IMPORTER_VERSION='1.0'
++STAGES=('baseline','closure','alternative')
++
++def canonical_hash(value):
++    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
++
++def measurement(value,parser):
++    if value is None or not str(value).strip():return None,'missing'
++    parsed=parser(value)
++    return (parsed,'valid') if parsed is not None else (None,'invalid')
++
++def trip_rows(path:Path,run_id:str):
++    with gzip.open(path,'rt',encoding='utf-8-sig',newline='') as stream:
++        reader=csv.DictReader(stream,delimiter=';')
++        fields=reader.fieldnames or []
++        required={'person','trip_number','dep_time','trav_time','traveled_distance'}
++        if len(fields)!=len(set(fields)) or not required<=set(fields) or not {'main_mode','modes'}&set(fields):
++            raise ValueError('Trip headers missing or duplicated')
++        rows=[]
++        for line,row in enumerate(reader,start=2):
++            person=row.get('person')
++            person=person if person and person.strip() else None
++            try:
++                number=int(row.get('trip_number') or '')
++                if number<1:raise ValueError
++            except (ValueError,TypeError):number=None
++            mode,fallback=trip_mode(row)
++            departure,departure_status=measurement(row.get('dep_time'),parse_time)
++            duration,time_status=measurement(row.get('trav_time'),parse_time)
++            distance,distance_status=measurement(row.get('traveled_distance'),nonnegative_number)
++            if None in row:
++                duration,distance=None,None
++                time_status=distance_status='invalid'
++            rows.append({'run_id':run_id,'source_row':line,'person_key':person,
++                'trip_number':number,'key_valid':person is not None and number is not None,
++                'duplicate_key':False,'mode':mode,'mode_fallback':fallback,
++                'departure_s':departure,'departure_status':departure_status,
++                'travel_time_s':duration,'time_status':time_status,
++                'distance_m':distance,'distance_status':distance_status,
++                'observed_detour':False,'observed_closed_link':False})
++    keys=Counter((r['person_key'],r['trip_number']) for r in rows if r['key_valid'])
++    for row in rows:row['duplicate_key']=row['key_valid'] and keys[row['person_key'],row['trip_number']]>1
++    return rows
++
++def shortest_path(links,origin,destination,*,only_added=False):
++    adjacency={}
++    for link in links:
++        if not link['car_allowed'] or (only_added and link['role']!='added_road'):continue
++        adjacency.setdefault(link['from_node'],[]).append(link)
++    queue=[(0.,0.,0,origin)];best={origin:0.}
++    while queue:
++        cost,distance,count,node=heapq.heappop(queue)
++        if cost!=best[node]:continue
++        if node==destination:return cost,distance,count
++        for link in adjacency.get(node,[]):
++            candidate=cost+link['freeflow_s'];target=link['to_node']
++            if candidate<best.get(target,math.inf):
++                best[target]=candidate
++                heapq.heappush(queue,(candidate,distance+link['length_m'],count+1,target))
++    return None,None,None
++
++def prepare_case(case_id=DEFAULT_CASE):
++    if Path(case_id).name!=case_id or '..' in case_id:raise ValueError('Invalid case id')
++    directory=ROOT/'output/planning_cases'/case_id
++    spec_path=directory/'case_spec.json';manifest_path=directory/'case_manifest.json'
++    spec=json.loads(spec_path.read_text());manifest=json.loads(manifest_path.read_text())
++    if manifest['status']!='completed':raise ValueError('Case must be completed')
++    case={'case_id':case_id,'spec_sha256':sha256_file(spec_path),
++          'plans_sha256':spec['inputs']['plans_file']['sha256'],
++          'description':'Fixed synthetic population: baseline / closure / closure plus geometric detour'}
++    prepared=[]
++    for group in manifest['rows']:
++        seed=group['seed'];configs=[]
++        for stage in STAGES:
++            completed=[a for a in group['stages'][stage]['attempts'] if a['status']=='completed']
++            if len(completed)!=1:raise ValueError('Require exactly one completed attempt per stage')
++            attempt=completed[0];result_ref=attempt['result'];result_path=ROOT/result_ref['path']
++            if sha256_file(result_path)!=result_ref['sha256']:raise ValueError('Case result fingerprint changed')
++            run_id=attempt['run_id']+'_sim'
++            assets=resolve_run_assets(run_id)
++            files=_artifacts(assets)
++            files.update(persons=Path(assets['sim_dir'])/'output_persons.csv.gz',
++                         scorestats=Path(assets['sim_dir'])/'scorestats.txt',case_spec=spec_path,case_result=result_path)
++            normalized,params=_config(files['config']);configs.append(normalized)
++            for key,artifact in [('inputPlansFile','plans'),('inputNetworkFile','input_network')]:
++                module='plans' if artifact=='plans' else 'network'
++                _verify_input_path(params[module,key],files[artifact],Path(assets['sim_dir']))
++            if int(params['global','randomSeed'])!=seed:raise ValueError('Seed mismatch')
++            sources=[{'run_id':run_id,'artifact':kind,'relative_path':path.relative_to(ROOT).as_posix(),
++                      'sha256':sha256_file(path),'bytes':path.stat().st_size} for kind,path in files.items()]
++            if next(x['sha256'] for x in sources if x['artifact']=='plans')!=case['plans_sha256']:
++                raise ValueError('Input plans differ from the case')
++            stamp={k:(p.stat().st_size,p.stat().st_mtime_ns) for k,p in files.items()}
++            compiler_hashes={name:sha256_file(ROOT/name) for name in ('wrapper/analytics.py','wrapper/measurements.py','wrapper/impact.py','sql/schema.sql')}
++            fingerprint=canonical_hash({'sources':sources,'importer':compiler_hashes,'case':case,'seed':seed,'stage':stage})
++            prepared.append({'case':case,'run_id':run_id,'stage':stage,'seed':seed,'files':files,'sources':sources,
++                'fingerprint':fingerprint,'stamps':stamp,'normalized_sha':canonical_hash(normalized),'spec':spec})
++        if not all(c==configs[0] for c in configs):raise ValueError('Within-seed configuration mismatch')
++    if {p['seed'] for p in prepared}!=set(spec['seeds']):raise ValueError('Seed set mismatch')
++    return case,prepared
++
++def extract_run(prepared):
++    p=prepared;files=p['files'];run_id=p['run_id']
++    network=_network(files['network']);strict_trips=_trips(files['trips'])
++    with gzip.open(files['network'],'rb') if files['network'].suffix=='.gz' else files['network'].open('rb') as stream:
++        xml=ET.parse(stream).getroot()
++    mode_map={link.get('id'):link.get('modes','').split(',') for link in xml.findall('./links/link')}
++    added={key for key in network if key.startswith('ifplan_road_')}
++    if p['stage']=='alternative' and not added:raise ValueError('Alternative has no recorded added-road links')
++    closed={item['id'] for item in p['spec']['geometry']['closure_links']}&network.keys()
++    stats,hits,completion,quality=_events(files['events'],network,strict_trips,added,{'car'},0,108000)
++    _,closed_hits,_,_=_events(files['events'],network,strict_trips,closed,{'car'},0,108000)
++    trips=trip_rows(files['trips'],run_id)
++    for trip in trips:
++        key=trip['person_key'],trip['trip_number']
++        # Membership means an observed complete traversal; absence is not proof of no route use.
++        usable=trip['key_valid'] and not trip['duplicate_key'] and trip['mode']=='car'
++        trip['observed_detour']=usable and key in hits
++        trip['observed_closed_link']=usable and key in closed_hits
++    links=[]
++    for key,link in network.items():
++        observed=stats.get(key)
++        complete=observed.complete if observed else 0
++        links.append({'run_id':run_id,'link_id':key,'from_node':link['from'],'to_node':link['to'],
++            'length_m':link['length_m'],'freespeed_m_s':link['freespeed_m_s'],'freeflow_s':link['freeflow_s'],
++            'car_allowed':'car' in mode_map[key],
++            'role':'added_road' if key in added else 'split_existing' if key.startswith('ifplan_split_') else 'existing',
++            'entered_count':observed.entered if observed else 0,'complete_count':complete,
++            'travel_time_sum_s':observed.travel if complete else None,'delay_sum_s':observed.delay if complete else None,
++            'mean_travel_time_s':observed.travel/complete if complete else None,
++            'mean_delay_s':observed.delay/complete if complete else None})
++    endpoints=p['spec']['geometry']['alternative_endpoint_nodes'];routes=[]
++    for direction,(origin,destination) in [('forward',endpoints),('reverse',endpoints[::-1])]:
++        for kind,restricted in [('shortest_network',False),('added_road_only',True)]:
++            cost,distance,count=shortest_path(links,origin,destination,only_added=restricted)
++            routes.append({'run_id':run_id,'direction':direction,'start_node':origin,'end_node':destination,
++                'route_kind':kind,'freeflow_s':cost,'distance_m':distance,'links':count})
++    with gzip.open(files['persons'],'rt') as stream:persons=sum(1 for _ in csv.DictReader(stream,delimiter=';'))
++    with files['scorestats'].open() as stream:iterations=sum(1 for _ in csv.DictReader(stream,delimiter='\t'))
++    for kind,path in files.items():
++        if (path.stat().st_size,path.stat().st_mtime_ns)!=p['stamps'][kind]:raise ValueError('Source changed during ingestion')
++    run={'run_id':run_id,'case_id':p['case']['case_id'],'scenario_key':p['stage'],'seed':p['seed'],
++        'fingerprint':p['fingerprint'],'importer_version':IMPORTER_VERSION,'persons':persons,'iterations':iterations,
++        'trip_rows':len(trips),'normalized_config_sha256':p['normalized_sha'],'plans_sha256':p['case']['plans_sha256'],
++        'event_quality_json':json.dumps(quality),'completion_json':json.dumps(completion)}
++    return {'run':run,'trips':trips,'link_metrics':links,'route_diagnostics':routes,'source_artifacts':p['sources']}
++
++def initialize(connection):
++    connection.execute((ROOT/'sql/schema.sql').read_text())
++    if connection.execute('SELECT version FROM analytics_meta').fetchall()!=[(1,)]:raise ValueError('Unsupported analytics schema version')
++
++def bulk_insert(connection,table,rows):
++    if table not in {'trips','link_metrics','route_diagnostics','source_artifacts'}:raise ValueError('Invalid table')
++    if not rows:return
++    columns=list(rows[0]);types={r[1]:r[2] for r in connection.execute(f"PRAGMA table_info('{table}')").fetchall()}
++    if set(columns)!=set(types):raise ValueError('Column mismatch')
++    with tempfile.TemporaryDirectory(prefix='matsim-sql-stage-') as temporary:
++        path=Path(temporary)/'rows.csv'
++        with path.open('w',encoding='utf-8',newline='') as stream:
++            writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader();writer.writerows(rows)
++        quoted=','.join('"'+key+'"' for key in columns)
++        type_sql='{'+','.join("'"+key+"':'"+types[key]+"'" for key in columns)+'}'
++        connection.execute(f'INSERT INTO {table} ({quoted}) SELECT {quoted} FROM read_csv(?, header=true, nullstr=\'\', columns={type_sql})',[str(path)])
++
++def import_prepared(connection,case,prepared,extractor=extract_run):
++    """One case batch is atomic. Same fingerprint skips; changed sources are refused."""
++    initialize(connection)
++    connection.execute('BEGIN TRANSACTION')
++    imported=skipped=0
++    try:
++        existing=connection.execute('SELECT spec_sha256,plans_sha256 FROM cases WHERE case_id=?',[case['case_id']]).fetchone()
++        if existing and existing!=(case['spec_sha256'],case['plans_sha256']):raise ValueError('Case sources changed; use a new database or case revision')
++        if not existing:
++            connection.execute('INSERT INTO cases VALUES (?,?,?,?)',list(case.values()))
++            for ordinal,stage in enumerate(STAGES):
++                connection.execute('INSERT INTO scenarios VALUES (?,?,?,?)',[case['case_id'],stage,ordinal,stage.replace('_',' ')])
++        for p in prepared:
++            old=connection.execute('SELECT fingerprint FROM runs WHERE run_id=?',[p['run_id']]).fetchone()
++            if old:
++                if old[0]!=p['fingerprint']:raise ValueError('Run sources or importer changed; create a new database revision')
++                skipped+=1;continue
++            snapshot=extractor(p);run=snapshot['run']
++            columns=','.join(run);markers=','.join('?' for _ in run)
++            connection.execute(f'INSERT INTO runs ({columns}) VALUES ({markers})',list(run.values()))
++            for table in ('trips','link_metrics','route_diagnostics','source_artifacts'):bulk_insert(connection,table,snapshot[table])
++            actual=connection.execute('SELECT count(*) FROM trips WHERE run_id=?',[p['run_id']]).fetchone()[0]
++            if actual!=run['trip_rows']:raise ValueError('Trip count mismatch')
++            imported+=1
++        connection.execute('COMMIT')
++    except BaseException:
++        connection.execute('ROLLBACK');raise
++    return {'imported_runs':imported,'skipped_runs':skipped}
++
++def import_case(database:Path,case_id=DEFAULT_CASE):
++    import duckdb
++    database.parent.mkdir(parents=True,exist_ok=True)
++    case,prepared=prepare_case(case_id)
++    with duckdb.connect(str(database)) as connection:return import_prepared(connection,case,prepared)
+--- /dev/null
++++ b/tests/test_analytics.py
+@@ -0,0 +1,119 @@
++import copy,csv,gzip,json,tempfile,unittest
++from pathlib import Path
++from wrapper import analytics as a
++from scripts.analytics import export
++try: import duckdb
++except ImportError: duckdb=None
++
++class TripImportTests(unittest.TestCase):
++ def parse(self,body):
++  with tempfile.TemporaryDirectory() as d:
++   path=Path(d)/'trips.csv.gz'
++   with gzip.open(path,'wt') as f:f.write('person;trip_number;dep_time;trav_time;traveled_distance;main_mode\n'+body)
++   return a.trip_rows(path,'r')
++ def test_null_zero_invalid_and_extended_time(self):
++  rows=self.parse('a;1;25:00:00;0;0;car\nb;1;1;;;car\nc;1;1;NaN;-1;car\n')
++  self.assertEqual([r['time_status'] for r in rows],['valid','missing','invalid'])
++  self.assertEqual([r['distance_status'] for r in rows],['valid','missing','invalid'])
++  self.assertEqual(rows[0]['departure_s'],90000)
++  self.assertEqual(rows[0]['travel_time_s'],0)
++ def test_all_duplicate_occurrences_excluded_but_retained(self):
++  rows=self.parse('a;1;0;10;100;car\na;1;0;20;200;car\na;2;0;10;100;car\n;1;0;10;100;car\n')
++  self.assertEqual([r['duplicate_key'] for r in rows],[True,True,False,False])
++  self.assertFalse(rows[-1]['key_valid'])
++ def test_bad_headers_fail_closed(self):
++  with tempfile.TemporaryDirectory() as d:
++   path=Path(d)/'bad.gz'
++   with gzip.open(path,'wt') as f:f.write('person;trav_time\na;10\n')
++   with self.assertRaises(ValueError):a.trip_rows(path,'r')
++ def test_extra_column_is_invalid(self):
++  self.assertEqual(self.parse('a;1;0;10;100;car;unexpected\n')[0]['time_status'],'invalid')
++ def test_shortest_path_car_and_added_road_restriction(self):
++  def edge(x,y,c,role='existing',car=True):return dict(from_node=x,to_node=y,freeflow_s=c,length_m=c*10,role=role,car_allowed=car)
++  links=[edge('a','b',2),edge('b','c',3),edge('a','c',9,'added_road'),edge('a','c',1,car=False)]
++  self.assertEqual(a.shortest_path(links,'a','c'),(5,50,2))
++  self.assertEqual(a.shortest_path(links,'a','c',only_added=True),(9,90,1))
++  self.assertEqual(a.shortest_path(links,'c','a'),(None,None,None))
++
++@unittest.skipUnless(duckdb,'optional analytics dependencies not installed')
++class AnalyticsDatabaseTests(unittest.TestCase):
++ def setUp(self):
++  self.db=duckdb.connect(':memory:');self.addCleanup(self.db.close)
++  self.case=dict(case_id='fixture',spec_sha256='s'*64,plans_sha256='p'*64,description='fixture')
++  self.prepared=[dict(run_id=s,stage=s,seed=1,fingerprint=s) for s in a.STAGES]
++ def extractor(self,p):
++  run=dict(run_id=p['run_id'],case_id='fixture',scenario_key=p['stage'],seed=1,fingerprint=p['fingerprint'],importer_version='fixture',persons=3,iterations=10,trip_rows=0,normalized_config_sha256='n'*64,plans_sha256='p'*64,event_quality_json='{}',completion_json='{}')
++  return dict(run=run,trips=[],link_metrics=[],route_diagnostics=[],source_artifacts=[])
++ def row(self,run,key,time,number=1,duplicate=False,mode='car',distance=100):
++  return dict(run_id=run,source_row=number,person_key=key,trip_number=1,key_valid=True,duplicate_key=duplicate,mode=mode,mode_fallback=False,departure_s=3600,departure_status='valid',travel_time_s=time,time_status='valid' if time is not None else 'missing',distance_m=distance,distance_status='valid' if distance is not None else 'missing',observed_detour=False,observed_closed_link=False)
++ def load(self):return a.import_prepared(self.db,self.case,self.prepared,self.extractor)
++ def test_idempotent_import_does_not_extract_again(self):
++  self.assertEqual(self.load(),dict(imported_runs=3,skipped_runs=0))
++  def fail(p):raise AssertionError('should skip')
++  self.assertEqual(a.import_prepared(self.db,self.case,self.prepared,fail),dict(imported_runs=0,skipped_runs=3))
++  self.assertEqual(self.db.execute('select count(*) from runs').fetchone()[0],3)
++ def test_changed_fingerprint_refused(self):
++  self.load();changed=copy.deepcopy(self.prepared);changed[1]['fingerprint']='changed'
++  with self.assertRaisesRegex(ValueError,'changed'):a.import_prepared(self.db,self.case,changed,self.extractor)
++  self.assertEqual(self.db.execute('select count(*) from runs').fetchone()[0],3)
++ def test_changed_case_refused(self):
++  self.load()
++  with self.assertRaisesRegex(ValueError,'Case sources'):a.import_prepared(self.db,dict(self.case,spec_sha256='changed'),self.prepared,self.extractor)
++ def test_batch_rolls_back_after_midway_failure(self):
++  def fail(p):
++   if p['stage']=='closure':raise ValueError('simulated extraction failure')
++   return self.extractor(p)
++  with self.assertRaises(ValueError):a.import_prepared(self.db,self.case,self.prepared,fail)
++  self.assertEqual(self.db.execute('select count(*) from runs').fetchone()[0],0)
++  self.assertEqual(self.db.execute('select count(*) from cases').fetchone()[0],0)
++ def test_count_mismatch_rolls_back(self):
++  def wrong(p):
++   result=self.extractor(p);result['run']['trip_rows']=2;return result
++  with self.assertRaisesRegex(ValueError,'Trip count'):a.import_prepared(self.db,self.case,self.prepared,wrong)
++  self.assertEqual(self.db.execute('select count(*) from runs').fetchone()[0],0)
++ def test_pairing_handles_missing_proposal_duplicate_and_mode_switch(self):
++  self.load()
++  a.bulk_insert(self.db,'trips',[self.row('baseline','a',10),self.row('baseline','b',20,2),self.row('baseline','c',30,3),self.row('baseline','d',0,4),self.row('closure','a',15,mode='walk'),self.row('closure','b',None,2),self.row('closure','c',50,3,True),self.row('closure','c',60,4,True),self.row('closure','d',0,5)])
++  got=self.db.execute("select person_key,pairing_status,delta_s,after_mode from paired_trips where label='closure_vs_baseline' order by person_key").fetchall()
++  self.assertEqual(got,[('a','paired',5,'walk'),('b','invalid',None,'car'),('c','unmatched',None,None),('d','paired',0,'car')])
++  rows=self.db.execute((a.ROOT/'sql/queries/03_paired_distribution.sql').read_text()).fetchall()
++  columns=[c[0] for c in self.db.description];record=next(dict(zip(columns,r)) for r in rows if r[2]=='closure_vs_baseline')
++  self.assertEqual((record['paired_keys'],record['unmatched_keys'],record['mode_switches'],record['mean_delta_s'],record['p95_delta_s']),(2,1,1,2.5,4.75))
++ def test_sql_means_keep_nulls_and_real_zero(self):
++  self.load();a.bulk_insert(self.db,'trips',[self.row('baseline','a',90,distance=None),self.row('baseline','b',None,2,distance=1000),self.row('baseline','c',0,3,distance=0)])
++  row=self.db.execute("select avg(travel_time_s),count(travel_time_s),avg(distance_m),count(distance_m) from trips").fetchone()
++  self.assertEqual(row,(45,2,500,2))
++ def test_constraints_reject_orphan_and_bad_measurements(self):
++  self.load()
++  with self.assertRaises(duckdb.ConstraintException):a.bulk_insert(self.db,'trips',[self.row('unknown','a',10)])
++  with self.assertRaises(duckdb.ConstraintException):a.bulk_insert(self.db,'trips',[self.row('baseline','a',-1)])
++ def test_every_review_query_executes_and_keeps_individual_keys_private(self):
++  self.load()
++  paths=list((a.ROOT/'sql/queries').glob('*.sql'));self.assertEqual(len(paths),10)
++  for path in paths:
++   self.db.execute(path.read_text()).fetchall()
++   self.assertNotIn('person_key',[c[0] for c in self.db.description])
++ def test_integrity_query_detects_row_count_mismatch(self):
++  self.load();a.bulk_insert(self.db,'trips',[self.row('baseline','a',10)])
++  checks=dict(self.db.execute((a.ROOT/'sql/queries/10_integrity.sql').read_text()).fetchall())
++  self.assertEqual(checks['trip_row_count_mismatch'],1)
++ def test_usage_aggregates_do_not_multiply_trips_by_links(self):
++  self.load();one=self.row('alternative','a',10);one['observed_detour']=True
++  a.bulk_insert(self.db,'trips',[one,self.row('alternative','b',20,2)])
++  def link(key,n,role):return dict(run_id='alternative',link_id=key,from_node='x',to_node='y',length_m=10,freespeed_m_s=1,freeflow_s=10,car_allowed=True,role=role,entered_count=n,complete_count=n,travel_time_sum_s=n*12,delay_sum_s=n*2,mean_travel_time_s=12,mean_delay_s=2)
++  a.bulk_insert(self.db,'link_metrics',[link('new1',2,'added_road'),link('new2',3,'added_road'),link('split',100,'split_existing')])
++  cursor=self.db.execute((a.ROOT/'sql/queries/07_detour_usage.sql').read_text());record=dict(zip([r[0] for r in cursor.description],cursor.fetchone()))
++  self.assertEqual((record['car_trips'],record['observed_detour_trips'],record['complete_link_traversals'],record['weighted_link_travel_s']),(2,1,5,12))
++ def test_cohort_window_is_before_anchored_and_half_open(self):
++  self.load();rows=[]
++  for i,time in enumerate([0,107999,108000],1):
++   before=self.row('baseline',str(i),10,i);before['departure_s']=time
++   after=self.row('closure',str(i),20,i);after['departure_s']=120000
++   rows.extend([before,after])
++  a.bulk_insert(self.db,'trips',rows)
++  self.assertEqual(self.db.execute("select count(*) from paired_trips where label='closure_vs_baseline' and pairing_status='paired'").fetchone()[0],2)
++ def test_export_refuses_overwrite(self):
++  with tempfile.TemporaryDirectory() as d:
++   with self.assertRaises(FileExistsError):export(Path(d)/'unused.duckdb',Path(d))
++
++if __name__=='__main__':unittest.main()
+--- /dev/null
++++ b/scripts/analytics.py
+@@ -0,0 +1,55 @@
++"""Local analytical database and aggregate SQL exports; no simulation is started."""
++import argparse,csv,hashlib,json
++from datetime import datetime,timezone
++from pathlib import Path
++from wrapper.analytics import ROOT,DEFAULT_CASE,import_case
++
++def query_rows(connection,query):
++    cursor=connection.execute(query)
++    fields=[col[0] for col in cursor.description]
++    return fields,[dict(zip(fields,row)) for row in cursor.fetchall()]
++
++def export(database,destination):
++    import duckdb
++    if destination.exists():raise FileExistsError('Choose a new export directory')
++    results={};hashes={}
++    with duckdb.connect(str(database),read_only=True) as connection:
++        for path in sorted((ROOT/'sql/queries').glob('*.sql')):
++            fields,rows=query_rows(connection,path.read_text())
++            results[path.stem]={'columns':fields,'rows':rows}
++            hashes[path.name]=hashlib.sha256(path.read_bytes()).hexdigest()
++        if not results:raise ValueError('No checked-in SQL queries found')
++        _,provenance=query_rows(connection,"SELECT r.run_id,r.case_id,r.seed,r.scenario_key,r.fingerprint,r.normalized_config_sha256,r.plans_sha256,s.artifact,s.relative_path,s.sha256,s.bytes FROM runs r JOIN source_artifacts s USING(run_id) ORDER BY r.run_id,s.artifact")
++        _,event_quality=query_rows(connection,"SELECT run_id,event_quality_json,completion_json FROM runs ORDER BY run_id")
++        counts={name:connection.execute('SELECT count(*) FROM '+name).fetchone()[0] for name in ('runs','trips','link_metrics','source_artifacts')}
++    destination.mkdir(parents=True)
++    for name,result in results.items():
++        with (destination/(name+'.csv')).open('w',newline='',encoding='utf-8') as stream:
++            writer=csv.DictWriter(stream,fieldnames=result['columns']);writer.writeheader();writer.writerows(result['rows'])
++    evidence={'release':'2026.10-p1','created_at_utc':datetime.now(timezone.utc).isoformat(),
++        'scope':'Aggregate-only SQL export of saved simulations; no new simulation, no individual rows',
++        'duckdb_version':duckdb.__version__,'table_counts':counts,'query_sha256':hashes,'source_provenance':provenance,'event_diagnostics':event_quality,'results':results}
++    (destination/'sql-evidence.json').write_text(json.dumps(evidence,indent=2,allow_nan=False)+'\n')
++    return counts
++
++def main():
++    parser=argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('command',choices=['import','export','query'])
++    parser.add_argument('--database',type=Path,default=ROOT/'output/analytics/matsim.duckdb')
++    parser.add_argument('--case',default=DEFAULT_CASE)
++    parser.add_argument('--destination',type=Path)
++    parser.add_argument('--name',help='A checked-in SQL query stem, e.g. 03_paired_distribution')
++    args=parser.parse_args()
++    if args.command=='import':result=import_case(args.database,args.case)
++    elif args.command=='export':
++        if args.destination is None:parser.error('--destination required')
++        result=export(args.database,args.destination)
++    else:
++        import duckdb
++        allowed={p.stem:p for p in (ROOT/'sql/queries').glob('*.sql')}
++        if args.name not in allowed:parser.error('--name must be a checked-in query stem')
++        with duckdb.connect(str(args.database),read_only=True) as connection:
++            _,result=query_rows(connection,allowed[args.name].read_text())
++    print(json.dumps(result,indent=2,default=str))
++
++if __name__=='__main__':main()
+--- /dev/null
++++ b/scripts/build_interview_report.py
+@@ -0,0 +1,89 @@
++"""Build the two-page English review from the checked-in aggregate SQL evidence.
++Optional authoring dependency: reportlab. No simulator or raw trip table needed.
++"""
++from pathlib import Path
++import json,statistics
++from reportlab.pdfgen import canvas
++from reportlab.lib.colors import HexColor,white
++from reportlab.lib.styles import ParagraphStyle
++from reportlab.platypus import Paragraph,Table,TableStyle
++from reportlab.lib.pagesizes import A4
++ROOT=Path(__file__).resolve().parents[1]
++D=json.loads((ROOT/'portfolio/evidence/sql/sql-evidence.json').read_text())['results']
++def rows(n):return next(v['rows'] for k,v in D.items() if k.startswith(n+'_'))
++def find(n,**kw):return next(r for r in rows(n) if all(r[k]==v for k,v in kw.items()))
++mean=statistics.fmean
++alt=[r for r in rows('03') if r['label']=='alternative_vs_closure']
++closure=[r for r in rows('03') if r['label']=='closure_vs_baseline']
++base=[r for r in rows('03') if r['label']=='alternative_vs_baseline']
++assert all(r['paired_keys']==934 and r['unmatched_keys']==r['invalid_pairs']==r['mode_switches']==0 for r in rows('03'))
++path=ROOT/'portfolio/reports/MATSim-detour-analysis.pdf';path.parent.mkdir(exist_ok=True)
++c=canvas.Canvas(str(path),pagesize=A4);c.setTitle('Why the added road did not improve travel time | MATSim case review');c.setAuthor('IF Line / MATSim personal integration project')
++W,H=A4;M=42;CW=W-2*M
++ink=HexColor('#192e33');muted=HexColor('#53676b');teal=HexColor('#145e53');rust=HexColor('#9b452c');line=HexColor('#d5ddd5');paper=HexColor('#f5f4ed')
++style=ParagraphStyle('body',fontName='Helvetica',fontSize=9.6,leading=13.5,textColor=ink,spaceAfter=0)
++def p(text,y,x=M,width=CW,size=9.6,color=ink):
++ st=ParagraphStyle('p',parent=style,fontSize=size,leading=size*1.4,textColor=color)
++ obj=Paragraph(text,st);_,height=obj.wrap(width,H)
++ assert y-height>40,(text,y,height)
++ obj.drawOn(c,x,y-height);return y-height
++
++def heading(text,y):return p(text,y,size=12.3,color=teal)-8
++
++def table(data,y,widths=None):
++ cells=[[Paragraph(str(v),ParagraphStyle('cell',parent=style,fontSize=8.5,leading=11.7,textColor=white if i==0 else ink)) for v in row] for i,row in enumerate(data)]
++ t=Table(cells,colWidths=widths or [CW/len(data[0])]*len(data[0]))
++ t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),ink),('BACKGROUND',(0,1),(-1,-1),white),('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),9),('RIGHTPADDING',(0,0),(-1,-1),9),('TOPPADDING',(0,0),(-1,-1),7),('BOTTOMPADDING',(0,0),(-1,-1),7),('LINEBELOW',(0,1),(-1,-1),.4,line)]))
++ _,height=t.wrap(CW,H);assert y-height>40;t.drawOn(c,M,y-height);return y-height
++
++def frame(page):
++ c.setFillColor(paper);c.rect(0,0,W,H,fill=1,stroke=0)
++ c.setFillColor(teal);c.setFont('Helvetica-Bold',9);c.drawString(M,H-31,'IF LINE / MATSim MELBOURNE')
++ c.setFillColor(muted);c.setFont('Helvetica',8);c.drawRightString(W-M,H-31,'CASE REVIEW  /  2026.10-P1')
++ c.setStrokeColor(line);c.line(M,35,W-M,35);c.setFont('Helvetica',7.4);c.drawString(M,23,'Synthetic simulation evidence | SQL queries 01-10 | No real-traffic calibration');c.drawRightString(W-M,23,f'{page} / 2')
++
++frame(1);y=H-58
++y=p('Why the added road did not<br/>improve travel time',y,size=25)-12
++y=p('Decision: do not present this design as a travel-time improvement. In three matched-seed comparisons, the alternative was effectively unchanged relative to closure and did not recover the closure loss.',y,size=10.6)-17
++# KPI cards: equal seed weights, never pseudo-replicated people.
++metrics=[(f'+{mean(r["mean_delta_s"] for r in closure):.3f} s','Closure minus baseline'),(f'+{mean(r["mean_delta_s"] for r in alt):.3f} s','Alternative minus closure'),('6 / 934','Observed new-road trips / run')]
++for i,(value,label) in enumerate(metrics):
++ x=M+i*(CW/3);c.setFillColor(white);c.roundRect(x,y-67,CW/3-8,67,5,fill=1,stroke=0)
++ p(value,y-10,x+12,CW/3-30,20,rust if i<2 else teal);p(label,y-42,x+12,CW/3-26,8,muted)
++y-=84
++y=heading('01  A controlled comparison, with explicit denominators',y)
++y=p('One fixed synthetic population of 1,037 people; three scenarios per seed (4711, 4712, 4713); iterations 0-9. Each run has 3,623 trips, including 934 car trips. Pairing uses person + trip number, anchored to the before-scenario departure in [0, 30 h). All 934 car keys pair; no mode switches in these comparisons. [Q01-Q03]',y)-11
++data=[['Seed','Baseline mean (s)','Closure mean (s)','Alternative mean (s)','Alt. - closure (s)']]
++for seed in [4711,4712,4713]:
++ data.append([seed]+[f'{find("02",seed=seed,scenario_key=s,mode="car")["mean_time_s"]:.3f}' for s in ['baseline','closure','alternative']]+[f'+{find("03",seed=seed,label="alternative_vs_closure")["mean_delta_s"]:.3f}'])
++y=table(data,y,[43,115,115,125,CW-398])-10
++y=p('The three-seed average is descriptive. The same population is reused; 2,802 paired records are not 2,802 independent travellers. A +0.098 s difference is not evidence of meaningful deterioration or statistical significance.',y,size=8.6,color=muted)-15
++y=heading('02  Small gains are offset by losses',y)
++y=p('Alternative versus closure: median change is 0 s and p95 is +1 s for every seed. Positive means slower. Bins use faster <= -1 s, unchanged |delta| < 1 s, slower >= +1 s. [Q03-Q04]',y)-9
++for seed in [4711,4712,4713]:
++ rr={r['change_bin']:r for r in rows('04') if r['seed']==seed and r['label']=='alternative_vs_closure'}
++ p(str(seed),y,M,40,8.6);x=M+48;barw=300
++ for key,color in [('faster',teal),('unchanged',HexColor('#c8d3ca')),('slower',rust)]:
++  width=barw*rr[key]['trips']/934;c.setFillColor(color);c.rect(x,y-12,width,11,fill=1,stroke=0);x+=width
++ p(f"{rr['faster']['trips']} / {rr['unchanged']['trips']} / {rr['slower']['trips']}",y,M+365,CW-365,8.6);y-=24
++y=p('Bars: faster / unchanged / slower. Seed 4711 saves 205 trip-seconds but adds 314, leaving +109 / 934 = +0.117 s. Seeds 4712 and 4713 leave +91 and +74 trip-seconds. One trip is +109 s in each seed; its route-level cause is not established here.',y,size=9)-12
++y=p('Compared with the original baseline, the alternative remains +7.628 s slower on average across seeds. Low median change therefore does not mean the closure impact was resolved. [Q03-Q04]',y,size=9)
++c.showPage()
++
++frame(2);y=H-58
++y=p('The explanation, and its limits',y,size=24)-18
++y=heading('03  Evidence supporting low route attractiveness and limited reach',y)
++route=find('09',seed=4711,direction='forward');usage=find('07',seed=4711)
++y=table([['Evidence','Interpretation'],
++ [f"Same-endpoint free-flow costs [Q09]<br/>Existing shortest: {route['closure_shortest_s']:.2f} s<br/>Full new corridor: {route['added_corridor_s']:.2f} s / {route['added_corridor_m']:.2f} m",'The new corridor is about 2.05 times the existing minimum. The network minimum is unchanged in both directions after adding it. This supports a lack of endpoint-to-endpoint time advantage; it is not an observed trip-time prediction.'],
++ [f"Observed usage [Q07]<br/>{usage['observed_detour_trips']} / 934 car trips ({usage['observed_detour_pct']:.2f}%)<br/>13 of 32 new directed links used",'The new road reaches few recorded trips. Each seed has 17 complete new-link traversals across six trips, not 17 users. Partial entry/exit links are excluded; absence of a complete traversal is not proof of no use.'],
++ ['The affected baseline cohort [Q06]<br/>223-226 trips used the closed links','Their mean alternative-minus-baseline change remains +30.37 to +30.89 s. Adding the road changes this cohort by only +0.15 to +0.23 s versus closure; it does not restore the original connection.']],y,[190,CW-190])-13
++y=p('Design context: the 356 m corridor was chosen for geometric feasibility before traffic outcomes, with 30 km/h, one lane per direction and capacity 900 vehicles/hour. A footprint-feasible path is not a travel-time-optimised path. Closed links and the new corridor have different endpoints; the direct cost test above deliberately uses the same endpoints. [case_spec.json, Q09]',y,size=9)-15
++y=heading('04  What the remaining diagnostics can and cannot tell us',y)
++y=p('<b>Observed:</b> the six new-road users are +5.50 to +5.67 s slower on average versus closure. This is a subgroup selected after the intervention, so it is not a causal estimate of the road\'s effect on users. Other trips also change. [Q06]',y,size=9.2)-8
++y=p('<b>No broad delay relief is visible on comparable links:</b> the largest absolute mean-time change between alternative and closure is about 0.014 s (links 1871 and 9344). At seed 4711 both move from 72 to 73 complete traversals and from 10.000 to 10.014 s / 7.000 to 7.014 s. Changed geometry and unobserved links are excluded; changing traffic composition still matters. [Q08]',y,size=9.2)-8
++y=p('<b>Time windows:</b> alternative minus closure is +0.068 s in 07-09, -0.022 s in 16-18, and +0.107 to +0.166 s otherwise. These descriptive windows do not demonstrate peak congestion relief. [Q05]',y,size=9.2)-15
++y=heading('05  Next experiments, in order',y)
++y=p('<b>1. Isolate topology from the road itself.</b> Run closure + identical link splits with the new corridor disabled; compare it with the full alternative using matched seeds. This separates junction/splitting effects from added connectivity.<br/><b>2. Test route attractiveness.</b> Inspect actual paths of the six users and the +109 s trip; then test a predeclared speed/capacity grid and demand-linked endpoint choices. Keep plans and seeds fixed.<br/><b>3. Test stability and realism.</b> Increase iterations and check score/route stability, expand seeds, then calibrate against observed demand/counts before making real-world claims. No convergence or policy-benefit claim is made now.',y,size=9.1)-13
++y=p('<b>Audit trail.</b> Q01-Q10 map to sql/queries/01_...sql through 10_...sql; aggregate CSVs and source SHA-256 values are in portfolio/evidence/sql/. SQL retains missing/invalid values as NULL and real zero as zero. Nine-run metrics and pair distributions match the existing Python analysis; event parsing is shared, not independently reimplemented. See docs/ANALYTICS.md for definitions and docs/CONTRIBUTIONS.md for upstream and AI-assisted boundaries.',y,size=7.9,color=muted)
++c.save();print(path)
+--- a/scripts/build_portfolio.py
++++ b/scripts/build_portfolio.py
+@@ -5,7 +5,9 @@
+ ROOT=Path(__file__).resolve().parents[1]
+ directory=ROOT/"portfolio"
+ data=json.loads((directory/"evidence/case.json").read_text(encoding="utf-8"))
++sql=json.loads((directory/'evidence/sql/sql-evidence.json').read_text(encoding='utf-8'))['results']
++sql_embedded=json.dumps({k:v for k,v in sql.items() if k[:2] in ('03','04','07','09')},allow_nan=False).replace('<','\\u003c')
+ template=(directory/"template.html").read_text(encoding="utf-8")
+ embedded=json.dumps(data,ensure_ascii=False,allow_nan=False).replace("<", "\\u003c")
+-(directory/"index.html").write_text(template.replace("__CASE_JSON__",embedded),encoding="utf-8")
++(directory/"index.html").write_text(template.replace("__CASE_JSON__",embedded).replace("__SQL_JSON__",sql_embedded),encoding="utf-8")
+ print("Built portfolio/index.html from portfolio/evidence/case.json")
+--- a/scripts/check_portfolio.cjs
++++ b/scripts/check_portfolio.cjs
+@@ -7,6 +7,7 @@
+  page.on('pageerror',e=>errors.push(e.message));
+  const url=process.argv[2]||'http://127.0.0.1:8765/portfolio/index.html';
+  await page.goto(url,{waitUntil:'networkidle'});
++ await page.waitForFunction(()=>window.scrollY===0);
+  await page.getByRole('button',{name:'Experiment',exact:true}).click();
+  assert.equal(await page.locator('#seedRows tr').count(),3);
+  assert.equal(await page.locator('#closureDelta').innerText(),'+7.530 s');
+@@ -17,14 +18,22 @@
+  for(const [selection,expected] of [['missing','90 s'],['zero','45 s'],['invalid','90 s'],['all','Unavailable']]){
+   await page.locator('#measurement').selectOption(selection);assert.equal(await page.locator('#mean').innerText(),expected);
+  }
++ await page.getByRole('button',{name:'SQL analysis',exact:true}).click();
++ for(const [seed,net] of [['4711','+109'],['4712','+91'],['4713','+74']]){
++  await page.getByLabel('SQL analysis seed').selectOption(seed);
++  assert.equal(await page.locator('#sql-users').innerText(),'6 / 934');
++  assert((await page.locator('#sql-net').innerText()).includes(net+' trip-seconds'));
++  assert.equal(await page.locator('#sql-existing-value').innerText(),'20.88 s');
++  assert.equal(await page.locator('#sql-new-value').innerText(),'42.74 s');
++ }
+  for(const width of [390,768,1440]){
+   await page.setViewportSize({width,height:1000});
+-  for(const tab of ['Overview','Architecture','Experiment','Data quality','Evidence']){
++  for(const tab of ['Overview','Architecture','Experiment','Data quality','SQL analysis','Evidence']){
+    await page.getByRole('button',{name:tab,exact:true}).click();
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Horizontal overflow: ${tab} at ${width}`);
+   }
+  }
+  assert.deepEqual(errors,[]);
+- console.log(JSON.stringify({status:'passed',seed_and_metric_checks:4,quality_states:4,responsive_sections:15,page_errors:errors}));
++ console.log(JSON.stringify({status:'passed',seed_and_metric_checks:4,quality_states:4,sql_seed_checks:12,responsive_sections:18,page_errors:errors}));
+  }finally{await browser.close();}
+ })().catch(e=>{console.error(e);process.exit(1)});
+--- /dev/null
++++ b/scripts/verify_analytics.py
+@@ -0,0 +1,48 @@
++from pathlib import Path
++import json,math,shutil,duckdb
++from wrapper.analyze import compute_summary_data
++from wrapper.impact import analyze_impact
++from wrapper.analytics import ROOT,import_case
++root=ROOT
++evidence=json.loads((root/'portfolio/evidence/sql/sql-evidence.json').read_text());results=evidence['results']
++old=json.loads((root/'portfolio/evidence/case.json').read_text())
++con=duckdb.connect(str(root/'output/analytics/matsim.duckdb'),read_only=True)
++checks=[];errors=[]
++from scripts.analytics import query_rows
++import hashlib
++for path in sorted((root/'sql/queries').glob('*.sql')):
++ assert hashlib.sha256(path.read_bytes()).hexdigest()==evidence['query_sha256'][path.name]
++ fields,current=query_rows(con,path.read_text())
++ assert current==results[path.stem]['rows'],path.name
++ assert fields==results[path.stem]['columns'],path.name
++def close(a,b):
++ if a is None or b is None:assert a is b,(a,b)
++ else:assert math.isclose(a,b,rel_tol=1e-12,abs_tol=1e-9),(a,b)
++for run in old['runs']:
++ actual=compute_summary_data(run['run'])
++ for mode in actual['mode_rows']:
++  sql=next(r for r in results['02_scenario_means']['rows'] if r['seed']==run['seed'] and r['scenario_key']==run['scenario'] and r['mode']==mode['mode'])
++  close(sql['mean_time_s'],mode['avg_time_seconds']);close(sql['mean_distance_m'],mode['avg_distance_m'])
++  checks.append({'run':run['run'],'mode':mode['mode'],'summary_match':True})
++ for name,sha in run['artifact_sha256'].items():
++  got=con.execute('SELECT sha256 FROM source_artifacts WHERE run_id=? AND relative_path LIKE ?',[run['run'],'%/'+name]).fetchone()
++  assert got and got[0]==sha,(name,run['run'])
++for row in results['03_paired_distribution']['rows']:
++ before,after={'closure_vs_baseline':('baseline','closure'),'alternative_vs_baseline':('baseline','alternative'),'alternative_vs_closure':('closure','alternative')}[row['label']]
++ ids={r['scenario']:r['run'] for r in old['runs'] if r['seed']==row['seed']}
++ impact=analyze_impact(ids[before],ids[after])['trips']
++ for field,other in [('mean_delta_s','mean'),('median_delta_s','median'),('p95_delta_s','p95')]:close(row[field],impact['delta_s'][other])
++ assert row['paired_keys']==impact['paired_count']==934
++ for b in results['04_change_bins']['rows']:
++  if b['seed']==row['seed'] and b['label']==row['label']:
++   assert b['trips']==impact[{'faster':'faster_count','slower':'slower_count','unchanged':'within_1s_count'}[b['change_bin']]]
++ checks.append({'seed':row['seed'],'comparison':row['label'],'paired_impact_match':True})
++assert all(r['issue_count']==0 for r in results['10_integrity']['rows'])
++counts=evidence['table_counts'];con.close()
++repeat=import_case(root/'output/analytics/matsim.duckdb');assert repeat==dict(imported_runs=0,skipped_runs=9)
++with duckdb.connect(str(root/'output/analytics/matsim.duckdb'),read_only=True) as db:
++ assert counts=={table:db.execute('SELECT count(*) FROM '+table).fetchone()[0] for table in counts}
++record={'release':'2026.10-p1','result':'passed','summary_comparisons':36,'paired_comparisons':9,'numeric_tolerance':{'relative':1e-12,'absolute':1e-9},'prior_p0_source_hashes_matched':27,'integrity_checks':results['10_integrity']['rows'],'idempotence':repeat,'table_counts_unchanged':counts,'checks':checks,'limitations':['Native parsers and event pairing are shared with the existing impact layer; this cross-check independently validates SQL aggregation, joins and percentiles, not an independent event parser.','No new simulation or external reviewer session was performed.']}
++(root/'validation/2026-10-18-p1-sql.json').write_text(json.dumps(record,indent=2)+'\n')
++print(json.dumps({k:v for k,v in record.items() if k!='checks'},indent=2))
++
+--- /dev/null
++++ b/sql/queries/01_data_quality.sql
+@@ -0,0 +1,14 @@
++-- Preserve invalid/missing rows; zero is a real observation.
++SELECT r.case_id,r.seed,r.scenario_key,coalesce(t.mode,'[missing]') AS mode,
++ count(*) AS row_count,count(t.travel_time_s) valid_time_rows,
++ count(*) FILTER(WHERE time_status='missing') missing_time_rows,
++ count(*) FILTER(WHERE time_status='invalid') invalid_time_rows,
++ count(*) FILTER(WHERE travel_time_s=0) zero_time_rows,
++ count(t.distance_m) valid_distance_rows,
++ count(*) FILTER(WHERE distance_status='missing') missing_distance_rows,
++ count(*) FILTER(WHERE distance_status='invalid') invalid_distance_rows,
++ count(*) FILTER(WHERE NOT key_valid) invalid_key_rows,
++ count(*) FILTER(WHERE duplicate_key) duplicate_key_rows,
++ count(*) FILTER(WHERE departure_status<>'valid') bad_departure_rows
++FROM runs r JOIN trips t USING(run_id)
++GROUP BY ALL ORDER BY r.case_id,r.seed,r.scenario_key,mode;
+--- /dev/null
++++ b/sql/queries/02_scenario_means.sql
+@@ -0,0 +1,15 @@
++-- Raw scenario means have separate valid denominators, not paired cohorts.
++WITH means AS (
++ SELECT r.case_id,r.seed,r.scenario_key,t.mode,count(*) trips,
++ count(t.travel_time_s) valid_time_rows,avg(t.travel_time_s) mean_time_s,
++ count(t.distance_m) valid_distance_rows,avg(t.distance_m) mean_distance_m
++ FROM runs r JOIN trips t USING(run_id) GROUP BY ALL
++ UNION ALL
++ SELECT r.case_id,r.seed,r.scenario_key,'ALL',count(*),count(t.travel_time_s),
++ avg(t.travel_time_s),count(t.distance_m),avg(t.distance_m)
++ FROM runs r JOIN trips t USING(run_id) GROUP BY r.case_id,r.seed,r.scenario_key
++)
++SELECT a.*,a.mean_time_s-b.mean_time_s change_from_baseline_s,
++ 100*(a.mean_time_s-b.mean_time_s)/nullif(b.mean_time_s,0) change_from_baseline_pct
++FROM means a JOIN means b ON a.case_id=b.case_id AND a.seed=b.seed AND a.mode=b.mode AND b.scenario_key='baseline'
++ORDER BY a.case_id,a.seed,a.mode,a.scenario_key;
+--- /dev/null
++++ b/sql/queries/03_paired_distribution.sql
+@@ -0,0 +1,14 @@
++-- Baseline-anchored car cohort; do not pool repeated seeds as independent people.
++SELECT case_id,seed,label,count(*) eligible_keys,
++ count(*) FILTER(WHERE pairing_status='unmatched') unmatched_keys,
++ count(*) FILTER(WHERE pairing_status='invalid') invalid_pairs,
++ count(*) FILTER(WHERE pairing_status='paired') paired_keys,
++ count(*) FILTER(WHERE pairing_status='paired' AND before_mode<>after_mode) mode_switches,
++ avg(delta_s) FILTER(WHERE pairing_status='paired') mean_delta_s,
++ median(delta_s) FILTER(WHERE pairing_status='paired') median_delta_s,
++ quantile_cont(delta_s,0.05) FILTER(WHERE pairing_status='paired') p05_delta_s,
++ quantile_cont(delta_s,0.95) FILTER(WHERE pairing_status='paired') p95_delta_s,
++ min(delta_s) FILTER(WHERE pairing_status='paired') min_delta_s,
++ max(delta_s) FILTER(WHERE pairing_status='paired') max_delta_s
++FROM paired_trips WHERE before_mode='car'
++GROUP BY ALL ORDER BY case_id,label,seed;
+--- /dev/null
++++ b/sql/queries/04_change_bins.sql
+@@ -0,0 +1,8 @@
++-- Mutually exclusive: faster <= -1 s; unchanged (-1,+1); slower >= +1 s.
++WITH classified AS (
++ SELECT *,CASE WHEN delta_s<=-1 THEN 'faster' WHEN delta_s>=1 THEN 'slower' ELSE 'unchanged' END change_bin
++ FROM paired_trips WHERE before_mode='car' AND pairing_status='paired'
++)
++SELECT case_id,seed,label,change_bin,count(*) trips,sum(delta_s) total_delta_s,
++ avg(delta_s) mean_delta_s,min(delta_s) min_delta_s,max(delta_s) max_delta_s
++FROM classified GROUP BY ALL ORDER BY case_id,label,seed,change_bin;
+--- /dev/null
++++ b/sql/queries/05_time_windows.sql
+@@ -0,0 +1,9 @@
++-- Fixed descriptive windows, using before-scenario departure time.
++WITH windows AS (
++ SELECT *,CASE WHEN departure_s>=25200 AND departure_s<32400 THEN 'AM 07-09'
++ WHEN departure_s>=57600 AND departure_s<64800 THEN 'PM 16-18' ELSE 'Other 00-30' END departure_window
++ FROM paired_trips WHERE before_mode='car' AND pairing_status='paired'
++)
++SELECT case_id,seed,label,departure_window,count(*) trips,avg(delta_s) mean_delta_s,
++ median(delta_s) median_delta_s,quantile_cont(delta_s,.95) p95_delta_s
++FROM windows GROUP BY ALL ORDER BY case_id,label,seed,departure_window;
+--- /dev/null
++++ b/sql/queries/06_exposure_cohorts.sql
+@@ -0,0 +1,18 @@
++-- Detour usage is selected AFTER treatment: association, not a causal subgroup effect.
++WITH cohorts AS (
++ SELECT p.*,'Observed added-road use in alternative' cohort_type,
++ CASE WHEN p.observed_detour THEN 'observed' ELSE 'not observed' END cohort
++ FROM paired_trips p WHERE p.label='alternative_vs_closure'
++ UNION ALL
++ SELECT p.*,'Observed closed-link use in baseline',
++ CASE WHEN t.observed_closed_link THEN 'observed' ELSE 'not observed' END
++ FROM paired_trips p JOIN runs r ON r.case_id=p.case_id AND r.seed=p.seed AND r.scenario_key='baseline'
++ JOIN usable_trip_keys t ON t.run_id=r.run_id AND t.person_key=p.person_key AND t.trip_number=p.trip_number
++)
++SELECT case_id,seed,label,cohort_type,cohort,count(*) trips,avg(delta_s) mean_delta_s,
++ sum(delta_s) total_delta_s,
++ count(*) FILTER(WHERE delta_s<=-1) faster,count(*) FILTER(WHERE delta_s>=1) slower,
++ count(*) FILTER(WHERE abs(delta_s)<1) unchanged,
++ avg(distance_delta_m) mean_distance_delta_m
++FROM cohorts WHERE before_mode='car' AND pairing_status='paired'
++GROUP BY ALL ORDER BY case_id,label,cohort_type,seed,cohort;
+--- /dev/null
++++ b/sql/queries/07_detour_usage.sql
+@@ -0,0 +1,17 @@
++-- Link traversals are NOT trip counts; split-existing links are excluded.
++WITH road AS (
++ SELECT run_id,count(*) added_links,count(*) FILTER(WHERE complete_count>0) used_added_links,
++ sum(entered_count) entered_link_traversals,sum(complete_count) complete_link_traversals,
++ sum(travel_time_sum_s)/nullif(sum(complete_count),0) weighted_link_travel_s,
++ sum(delay_sum_s)/nullif(sum(complete_count),0) weighted_link_delay_s
++ FROM link_metrics WHERE role='added_road' AND car_allowed GROUP BY run_id
++), usage AS (
++ SELECT run_id,count(*) FILTER(WHERE mode='car' AND key_valid AND NOT duplicate_key) car_trips,
++ count(*) FILTER(WHERE observed_detour) observed_detour_trips
++ FROM trips GROUP BY run_id
++)
++SELECT r.case_id,r.seed,r.scenario_key,u.car_trips,u.observed_detour_trips,
++ 100.*u.observed_detour_trips/nullif(u.car_trips,0) observed_detour_pct,
++ d.* EXCLUDE(run_id)
++FROM runs r JOIN usage u USING(run_id) JOIN road d USING(run_id)
++ORDER BY r.case_id,r.seed;
+--- /dev/null
++++ b/sql/queries/08_link_changes.sql
+@@ -0,0 +1,21 @@
++-- Like-for-like link geometry only; changing users still limit causal interpretation.
++WITH comparisons(label,before_key,after_key) AS (VALUES
++ ('closure_vs_baseline','baseline','closure'),('alternative_vs_closure','closure','alternative')),
++ matched AS (
++ SELECT rb.case_id,rb.seed,c.label,b.link_id,b.from_node,b.to_node,b.length_m,
++ b.complete_count before_traversals,a.complete_count after_traversals,
++ b.mean_travel_time_s before_mean_s,a.mean_travel_time_s after_mean_s,
++ a.mean_travel_time_s-b.mean_travel_time_s delta_mean_s,
++ a.complete_count-b.complete_count delta_traversals
++ FROM comparisons c JOIN runs rb ON rb.scenario_key=c.before_key
++ JOIN runs ra ON ra.case_id=rb.case_id AND ra.seed=rb.seed AND ra.scenario_key=c.after_key
++ JOIN link_metrics b ON b.run_id=rb.run_id
++ JOIN link_metrics a ON a.run_id=ra.run_id AND a.link_id=b.link_id
++ WHERE b.role='existing' AND a.role='existing' AND b.car_allowed AND a.car_allowed
++ AND b.from_node=a.from_node AND b.to_node=a.to_node AND abs(b.length_m-a.length_m)<1e-6
++ AND abs(b.freespeed_m_s-a.freespeed_m_s)<1e-9 AND a.complete_count>0 AND b.complete_count>0
++), ranked AS (
++ SELECT *,row_number() OVER(PARTITION BY case_id,seed,label ORDER BY abs(delta_mean_s) DESC,link_id) magnitude_rank
++ FROM matched
++)
++SELECT * FROM ranked WHERE magnitude_rank<=5 ORDER BY case_id,label,seed,magnitude_rank;
+--- /dev/null
++++ b/sql/queries/09_route_diagnostics.sql
+@@ -0,0 +1,9 @@
++-- Same endpoints in every scenario. Static free-flow costs, not observed whole trips.
++SELECT r.case_id,r.seed,d.direction,d.start_node,d.end_node,
++ max(d.freeflow_s) FILTER(WHERE r.scenario_key='baseline' AND d.route_kind='shortest_network') baseline_shortest_s,
++ max(d.freeflow_s) FILTER(WHERE r.scenario_key='closure' AND d.route_kind='shortest_network') closure_shortest_s,
++ max(d.freeflow_s) FILTER(WHERE r.scenario_key='alternative' AND d.route_kind='shortest_network') alternative_shortest_s,
++ max(d.freeflow_s) FILTER(WHERE r.scenario_key='alternative' AND d.route_kind='added_road_only') added_corridor_s,
++ max(d.distance_m) FILTER(WHERE r.scenario_key='alternative' AND d.route_kind='added_road_only') added_corridor_m
++FROM route_diagnostics d JOIN runs r USING(run_id)
++GROUP BY r.case_id,r.seed,d.direction,d.start_node,d.end_node ORDER BY ALL;
+--- /dev/null
++++ b/sql/queries/10_integrity.sql
+@@ -0,0 +1,15 @@
++-- Every issue_count must be zero for the accepted export.
++WITH duplicate_groups AS (
++ SELECT run_id,person_key,trip_number,count(*) n,bool_and(duplicate_key) all_flagged
++ FROM trips WHERE key_valid GROUP BY ALL
++), row_counts AS (SELECT run_id,count(*) n FROM trips GROUP BY run_id)
++SELECT 'trip_row_count_mismatch' check_name,count(*) issue_count FROM runs r LEFT JOIN row_counts c USING(run_id) WHERE r.trip_rows<>coalesce(c.n,0)
++UNION ALL SELECT 'unflagged_duplicate_keys',count(*) FROM duplicate_groups WHERE n>1 AND NOT all_flagged
++UNION ALL SELECT 'orphan_trips',count(*) FROM trips t LEFT JOIN runs r USING(run_id) WHERE r.run_id IS NULL
++UNION ALL SELECT 'invalid_time_semantics',count(*) FROM trips WHERE (time_status='valid')<>(travel_time_s IS NOT NULL) OR travel_time_s<0 OR NOT isfinite(travel_time_s)
++UNION ALL SELECT 'invalid_distance_semantics',count(*) FROM trips WHERE (distance_status='valid')<>(distance_m IS NOT NULL) OR distance_m<0 OR NOT isfinite(distance_m)
++UNION ALL SELECT 'case_plans_mismatch',count(*) FROM runs r JOIN cases c USING(case_id) WHERE r.plans_sha256<>c.plans_sha256
++UNION ALL SELECT 'incomplete_seed_triplet',count(*) FROM (SELECT case_id,seed FROM runs GROUP BY ALL HAVING count(*)<>3 OR count(DISTINCT normalized_config_sha256)<>1)
++UNION ALL SELECT 'missing_core_source_hash',count(*) FROM runs r CROSS JOIN (VALUES ('trips'),('events'),('network'),('config'),('plans')) k(artifact)
++ LEFT JOIN source_artifacts s ON s.run_id=r.run_id AND s.artifact=k.artifact WHERE s.sha256 IS NULL OR length(s.sha256)<>64
++ORDER BY check_name;
+--- /dev/null
++++ b/sql/schema.sql
+@@ -0,0 +1,88 @@
++-- Local analytical store. Units: seconds, metres, and counts unless named otherwise.
++CREATE TABLE IF NOT EXISTS analytics_meta(version INTEGER PRIMARY KEY);
++INSERT INTO analytics_meta SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM analytics_meta);
++CREATE TABLE IF NOT EXISTS cases (
++ case_id VARCHAR PRIMARY KEY, spec_sha256 VARCHAR NOT NULL, plans_sha256 VARCHAR NOT NULL,
++ description VARCHAR NOT NULL
++);
++CREATE TABLE IF NOT EXISTS scenarios (
++ case_id VARCHAR REFERENCES cases(case_id), scenario_key VARCHAR, ordinal INTEGER NOT NULL,
++ description VARCHAR NOT NULL, PRIMARY KEY(case_id, scenario_key)
++);
++CREATE TABLE IF NOT EXISTS runs (
++ run_id VARCHAR PRIMARY KEY, case_id VARCHAR NOT NULL, scenario_key VARCHAR NOT NULL,
++ seed INTEGER NOT NULL, fingerprint VARCHAR NOT NULL, importer_version VARCHAR NOT NULL,
++ persons INTEGER NOT NULL, iterations INTEGER NOT NULL, trip_rows INTEGER NOT NULL,
++ normalized_config_sha256 VARCHAR NOT NULL, plans_sha256 VARCHAR NOT NULL,
++ event_quality_json VARCHAR NOT NULL, completion_json VARCHAR NOT NULL,
++ imported_at TIMESTAMP DEFAULT current_timestamp,
++ UNIQUE(case_id,seed,scenario_key),
++ FOREIGN KEY(case_id,scenario_key) REFERENCES scenarios(case_id,scenario_key)
++);
++CREATE TABLE IF NOT EXISTS source_artifacts (
++ run_id VARCHAR REFERENCES runs(run_id), artifact VARCHAR, relative_path VARCHAR NOT NULL,
++ sha256 VARCHAR NOT NULL, bytes BIGINT NOT NULL, PRIMARY KEY(run_id,artifact)
++);
++CREATE TABLE IF NOT EXISTS trips (
++ run_id VARCHAR REFERENCES runs(run_id), source_row INTEGER, person_key VARCHAR,
++ trip_number INTEGER, key_valid BOOLEAN NOT NULL, duplicate_key BOOLEAN NOT NULL,
++ mode VARCHAR, mode_fallback BOOLEAN NOT NULL,
++ departure_s DOUBLE, departure_status VARCHAR NOT NULL,
++ travel_time_s DOUBLE, time_status VARCHAR NOT NULL,
++ distance_m DOUBLE, distance_status VARCHAR NOT NULL,
++ observed_detour BOOLEAN NOT NULL, observed_closed_link BOOLEAN NOT NULL,
++ PRIMARY KEY(run_id,source_row),
++ CHECK (time_status IN ('valid','missing','invalid')),
++ CHECK (distance_status IN ('valid','missing','invalid')),
++ CHECK ((time_status='valid')=(travel_time_s IS NOT NULL)),
++ CHECK ((distance_status='valid')=(distance_m IS NOT NULL)),
++ CHECK (travel_time_s IS NULL OR (isfinite(travel_time_s) AND travel_time_s>=0)),
++ CHECK (distance_m IS NULL OR (isfinite(distance_m) AND distance_m>=0))
++);
++CREATE TABLE IF NOT EXISTS link_metrics (
++ run_id VARCHAR REFERENCES runs(run_id), link_id VARCHAR, from_node VARCHAR, to_node VARCHAR,
++ length_m DOUBLE, freespeed_m_s DOUBLE, freeflow_s DOUBLE,
++ car_allowed BOOLEAN, role VARCHAR, entered_count BIGINT, complete_count BIGINT,
++ travel_time_sum_s DOUBLE, delay_sum_s DOUBLE,
++ mean_travel_time_s DOUBLE, mean_delay_s DOUBLE,
++ PRIMARY KEY(run_id,link_id),
++ CHECK (role IN ('existing','added_road','split_existing')),
++ CHECK (complete_count>=0 AND entered_count>=complete_count),
++ CHECK ((complete_count=0)=(mean_travel_time_s IS NULL))
++);
++CREATE TABLE IF NOT EXISTS route_diagnostics (
++ run_id VARCHAR REFERENCES runs(run_id), direction VARCHAR,
++ start_node VARCHAR, end_node VARCHAR, route_kind VARCHAR,
++ freeflow_s DOUBLE, distance_m DOUBLE, links INTEGER,
++ PRIMARY KEY(run_id,direction,route_kind)
++);
++
++-- Keep malformed/duplicate keys in the raw analytical table for quality audits,
++-- but exclude all occurrences of a duplicate key from pairing.
++CREATE OR REPLACE VIEW usable_trip_keys AS
++ SELECT * FROM trips WHERE key_valid AND NOT duplicate_key;
++
++-- Baseline-anchored matching; travel mode changes are retained and counted.
++-- The 0..30 h departure window matches the recorded strict impact review.
++CREATE OR REPLACE VIEW paired_trips AS
++ WITH comparisons(label,before_key,after_key) AS (VALUES
++  ('closure_vs_baseline','baseline','closure'),
++  ('alternative_vs_baseline','baseline','alternative'),
++  ('alternative_vs_closure','closure','alternative'))
++ SELECT rb.case_id,rb.seed,c.label,rb.run_id before_run,ra.run_id after_run,
++  b.person_key,b.trip_number,b.mode before_mode,a.mode after_mode,
++  b.departure_s,b.travel_time_s before_s,a.travel_time_s after_s,
++  a.travel_time_s-b.travel_time_s delta_s,
++  b.distance_m before_distance_m,a.distance_m after_distance_m,
++  a.distance_m-b.distance_m distance_delta_m,
++  a.observed_detour,
++  CASE WHEN a.source_row IS NULL THEN 'unmatched'
++       WHEN b.travel_time_s IS NULL OR a.travel_time_s IS NULL
++        OR a.departure_s IS NULL OR a.mode IS NULL THEN 'invalid'
++       ELSE 'paired' END pairing_status
++ FROM comparisons c
++ JOIN runs rb ON rb.scenario_key=c.before_key
++ JOIN runs ra ON ra.case_id=rb.case_id AND ra.seed=rb.seed AND ra.scenario_key=c.after_key
++ JOIN usable_trip_keys b ON b.run_id=rb.run_id
++ LEFT JOIN usable_trip_keys a ON a.run_id=ra.run_id AND a.person_key=b.person_key AND a.trip_number=b.trip_number
++ WHERE b.departure_s>=0 AND b.departure_s<108000 AND b.mode IS NOT NULL;
+--- a/.github/workflows/python-tests.yml
++++ b/.github/workflows/python-tests.yml
+@@ -19,6 +19,6 @@
+           python-version: "3.11"
+           cache: pip
+       - name: Install product dependencies
+-        run: python -m pip install -r requirements.txt
++        run: python -m pip install -r requirements.txt -r requirements-analytics.txt
+       - name: Run unit tests
+         run: python -m unittest discover -s tests -v

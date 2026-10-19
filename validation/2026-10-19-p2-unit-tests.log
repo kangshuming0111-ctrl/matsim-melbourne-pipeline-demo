@@ -1,0 +1,157 @@
+..............................................................................................................Domain experiment changed: preflight
+Domain experiment failed; evidence preserved at /tmp/tmp7k6eb5xr/output/domain_experiments/changed
+..Domain experiment failed: preflight
+Domain experiment failed: network_generation
+Domain experiment failed; evidence preserved at /tmp/tmp5n0zba5u/output/domain_experiments/failed
+...Domain experiment interrupted: preflight
+Domain experiment interrupted: network_generation
+Domain experiment failed; evidence preserved at /tmp/tmperw62cmn/output/domain_experiments/interrupted
+..Domain experiment low_overlap: preflight
+Domain experiment low_overlap: network_generation
+Domain experiment low_overlap: audit_after_cleaning
+Domain experiment low_overlap: completed
+.Domain experiment test_domain: preflight
+Domain experiment test_domain: network_generation
+Domain experiment test_domain: audit_after_cleaning
+Domain experiment test_domain: completed
+.Domain experiment stale: preflight
+Domain experiment failed; evidence preserved at /tmp/tmpskoz4gog/output/domain_experiments/stale
+.Domain experiment wrong_crs: preflight
+Domain experiment failed; evidence preserved at /tmp/tmpf7fnlb58/output/domain_experiments/wrong_crs
+.Domain experiment empty_result: preflight
+Domain experiment empty_result: network_generation
+Domain experiment empty_result: audit_after_cleaning
+Domain experiment failed; evidence preserved at /tmp/tmp44e7zdyu/output/domain_experiments/empty_result
+............................................................s..................................................=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+.=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+Activity-domain precondition passed; transport/simulation validity is not established.
+.=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+Activity-domain precondition passed; transport/simulation validity is not established.
+.=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+.=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+.=== Step 1/3: building network ===
+
+=== Step 2/3: deriving matching SA1 subset ===
+
+=== Step 3/3: building demand for the same SA1 subset ===
+
+=== Cross-checking coverage ===
+100.0% of demand activity locations fall inside network's coverage area
+.............................2026-10-19T09:52:20.975351+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+.....usage: python -m unittest [-h] (--prepare | --bootstrap | --run CASE_DIR)
+                          [--source-run SOURCE_RUN] [--case-id CASE_ID]
+                          [--network-dir NETWORK_DIR]
+                          [--alternative-route {straight,detour}]
+                          [--seeds SEEDS [SEEDS ...]]
+                          [--last-iteration LAST_ITERATION]
+                          [--acknowledge-conceptual-conflicts] [--resume]
+python -m unittest: error: one of the arguments --prepare --bootstrap --run is required
+usage: python -m unittest [-h] (--prepare | --bootstrap | --run CASE_DIR)
+                          [--source-run SOURCE_RUN] [--case-id CASE_ID]
+                          [--network-dir NETWORK_DIR]
+                          [--alternative-route {straight,detour}]
+                          [--seeds SEEDS [SEEDS ...]]
+                          [--last-iteration LAST_ITERATION]
+                          [--acknowledge-conceptual-conflicts] [--resume]
+python -m unittest: error: argument --run: not allowed with argument --prepare
+usage: python -m unittest [-h] (--prepare | --bootstrap | --run CASE_DIR)
+                          [--source-run SOURCE_RUN] [--case-id CASE_ID]
+                          [--network-dir NETWORK_DIR]
+                          [--alternative-route {straight,detour}]
+                          [--seeds SEEDS [SEEDS ...]]
+                          [--last-iteration LAST_ITERATION]
+                          [--acknowledge-conceptual-conflicts] [--resume]
+python -m unittest: error: Run controls are frozen; use prepare options to create a new case
+usage: python -m unittest [-h] (--prepare | --bootstrap | --run CASE_DIR)
+                          [--source-run SOURCE_RUN] [--case-id CASE_ID]
+                          [--network-dir NETWORK_DIR]
+                          [--alternative-route {straight,detour}]
+                          [--seeds SEEDS [SEEDS ...]]
+                          [--last-iteration LAST_ITERATION]
+                          [--acknowledge-conceptual-conflicts] [--resume]
+python -m unittest: error: Acknowledgement and --resume apply only to --run
+.2026-10-19T09:52:21.019374+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-10-19T09:52:21.026053+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+......2026-10-19T09:52:21.083485+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+....2026-10-19T09:52:21.125551+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-10-19T09:52:21.132039+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-10-19T09:52:21.141950+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a02
+2026-10-19T09:52:21.151932+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+..2026-10-19T09:52:21.212866+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-10-19T09:52:21.219424+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-10-19T09:52:21.238449+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+..2026-10-19T09:52:21.273757+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-10-19T09:52:21.280093+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-10-19T09:52:21.289765+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+2026-10-19T09:52:21.303595+00:00 seed=4712 stage=baseline run=test_case_s4712_baseline_a01
+2026-10-19T09:52:21.310361+00:00 seed=4712 stage=closure run=test_case_s4712_closure_a01
+2026-10-19T09:52:21.320048+00:00 seed=4712 stage=alternative run=test_case_s4712_alternative_a01
+2026-10-19T09:52:21.334645+00:00 seed=4713 stage=baseline run=test_case_s4713_baseline_a01
+2026-10-19T09:52:21.340979+00:00 seed=4713 stage=closure run=test_case_s4713_closure_a01
+2026-10-19T09:52:21.350623+00:00 seed=4713 stage=alternative run=test_case_s4713_alternative_a01
+...2026-10-19T09:52:21.396196+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-10-19T09:52:21.402610+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-10-19T09:52:21.412209+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+..2026-10-19T09:52:21.425195+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-10-19T09:52:21.431627+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-10-19T09:52:21.442016+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+....................................External process console log: /tmp/tmpywvqcdfm/logs/console.log
+External process console log: /tmp/tmpywvqcdfm/logs/console.log
+..External process console log: /tmp/tmp6b2_rzn_/failure.log
+.External process console log: /tmp/tmpr796310q/contract.log
+..External process console log: /tmp/tmpx61is0xy/signal.log
+.External process console log: /tmp/tmpeefrgpra/start.log
+..Building docker image 'matsim-network-generator' (first run only, this can take a few minutes)...
+Running network generator for city='test' with isolated scratch...
+Building docker image 'matsim-demand-generator' (first run only, this can take a few minutes)...
+Running demand generator (sample=0.1%, numPlans=500)... this can take a while.
+Building docker image 'matsim-baseline' (first run only - Maven has to download MATSim + contribs, can take a while)...
+Running MATSim simulation (iterations 0–2)... this can take a while.
+Building docker image 'matsim-demand-generator' (first run only, this can take a few minutes)...
+Deriving SA1 subset for region 'region.geojson' (buffer 500m)...
+.....Running network generator for city='test' with isolated scratch...
+.Running network generator for city='city' with isolated scratch...
+Running network generator for city='city' with isolated scratch...
+.Running network generator for city='city' with isolated scratch...
+Running network generator for city='city' with isolated scratch...
+Running network generator for city='city' with isolated scratch...
+Running network generator for city='city' with isolated scratch...
+....=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+Activity-domain precondition passed; transport/simulation validity is not established.
+...=== Step 1/3: building network ===
+
+=== Step 2/3: deriving matching SA1 subset ===
+
+=== Step 3/3: building demand for the same SA1 subset ===
+
+=== Cross-checking coverage ===
+100.0% of demand activity locations fall inside network's coverage area
+..=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+.=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+.=== Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+...............
+----------------------------------------------------------------------
+Ran 368 tests in 1.953s
+
+OK (skipped=1)

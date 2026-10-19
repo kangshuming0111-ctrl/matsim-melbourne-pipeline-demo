@@ -1,0 +1,88 @@
+<!doctype html><meta charset="utf-8"><title>Studio visible viewport regression</title>
+<h1>Studio layout regression (no API or simulation)</h1>
+<pre id="results">Running…</pre><div id="fixtures"></div>
+<script>
+// Serve the repository root with a local HTTP server. Load the real markup,
+// styles and viewport controller; never load app scripts or saved user drafts.
+(async () => {
+  const output = document.getElementById('results'), checks = [];
+  function assert(ok, message) { if (!ok) throw Error(message); checks.push(message); }
+  try {
+    const response = await fetch('../../wrapper/static/index.html');
+    if (!response.ok) throw Error('Cannot read application markup');
+    const source = new DOMParser().parseFromString(await response.text(), 'text/html');
+    const stage = source.getElementById('iflineStudioStage');
+    for (const el of stage.querySelectorAll('*')) {
+      for (const attr of [...el.attributes]) if (attr.name.startsWith('on')) el.removeAttribute(attr.name);
+    }
+    const cases = [
+      ...[320, 375, 600, 760, 761, 1024, 1280, 1920].map(width => ({width, height:720, x:0, y:0, layout:width})),
+      {width:600, height:420, x:170, y:140, layout:1280},
+      {width:320, height:300, x:300, y:200, layout:1280},
+    ];
+    for (const box of cases) {
+      const frame = document.createElement('iframe');
+      frame.title = `Viewport ${box.width}x${box.height} at ${box.x},${box.y}`;
+      frame.style.cssText = `width:${box.layout}px;height:900px;border:0;display:block`;
+      const loaded = new Promise(resolve => frame.onload = resolve);
+      frame.srcdoc = '<!doctype html><meta charset="utf-8">' +
+        source.querySelector('style').outerHTML + '<body class="ifline-studio-open">' + stage.outerHTML;
+      document.getElementById('fixtures').append(frame);
+      await loaded;
+      const w = frame.contentWindow, d = w.document, s = d.getElementById('iflineStudioStage');
+      const script = d.createElement('script');
+      const ready = new Promise((resolve, reject) => {script.onload = resolve; script.onerror = reject;});
+      script.src = new URL('../../wrapper/static/studio-viewport.js', location.href).href;
+      d.head.append(script); await ready;
+      const viewport = Object.assign(new w.EventTarget(), {
+        width:box.width, height:box.height, offsetLeft:box.x, offsetTop:box.y
+      });
+      const host = {
+        visualViewport:viewport, innerWidth:box.layout, innerHeight:900,
+        requestAnimationFrame:w.requestAnimationFrame.bind(w), cancelAnimationFrame:w.cancelAnimationFrame.bind(w),
+        addEventListener:w.addEventListener.bind(w), removeEventListener:w.removeEventListener.bind(w)
+      };
+      let resizes = 0;
+      const cleanup = w.StudioViewport.bind(s, () => resizes++, host);
+      d.getElementById('planPoints').innerHTML = '<div style="display:flex;gap:5px"><label>点32 高度 m</label>' +
+        '<input type="number" style="width:70px" value="50"><button style="width:auto">移动此点</button></div>';
+      d.getElementById('planConflicts').innerHTML = '<button>建筑1 — ' + 'LongBuildingName'.repeat(8) + '</button>';
+      d.getElementById('planAcknowledgement').hidden = false;
+      const panel = d.getElementById('iflineStudioTools'), rect = panel.getBoundingClientRect();
+      const label = `${box.width}x${box.height} offset ${box.x},${box.y}`;
+      assert(rect.left >= box.x && rect.right <= box.x + box.width + 1, label + ': sidebar within visible width');
+      assert(rect.top >= box.y && rect.bottom <= box.y + box.height + 1, label + ': sidebar within visible height');
+      assert(panel.scrollWidth <= panel.clientWidth + 1, label + ': no horizontal overflow');
+      const top = d.getElementById('iflineStudioTopbar').getBoundingClientRect();
+      assert(top.top >= box.y && top.right <= box.x + box.width + 1, label + ': topbar visible');
+      assert([...panel.querySelectorAll('button,input,svg')].every(e => {
+        const r = e.getBoundingClientRect(); return !r.width || (r.left >= rect.left && r.right <= rect.right + 1);
+      }), label + ': controls fit including long names and point rows');
+      // Target the button, not the very last paragraph: at low viewport
+      // heights scrolling all the way down can put the button above view.
+      d.getElementById('iflineStudioRun').scrollIntoView({block:'center'});
+      const run = d.getElementById('iflineStudioRun').getBoundingClientRect();
+      assert(panel.scrollTop > 0 && run.bottom <= rect.bottom + 1 && run.top >= rect.top,
+        label + ': comparison button reachable by vertical scrolling');
+      if (box.width <= 760) {
+        d.body.classList.add('studio-tools-collapsed');
+        assert(w.getComputedStyle(panel).display === 'none' &&
+          w.getComputedStyle(d.getElementById('studioPanelToggle')).display !== 'none', label + ': drawer can be hidden/reopened');
+        d.body.classList.remove('studio-tools-collapsed');
+      }
+      // Offset-only panning should not reallocate the 3D drawing buffer.
+      viewport.offsetLeft += 5; viewport.dispatchEvent(new w.Event('scroll'));
+      await new Promise(resolve => w.requestAnimationFrame(resolve));
+      assert(resizes === 1 && s.style.getPropertyValue('--studio-left') === `${box.x + 5}px`, label + ': pan tracks without renderer resize');
+      cleanup();
+      viewport.dispatchEvent(new w.Event('resize'));
+      await new Promise(resolve => w.requestAnimationFrame(resolve));
+      assert(!s.classList.contains('studio-compact') && !s.style.getPropertyValue('--studio-width') && resizes === 1,
+        label + ': exit removes listeners and viewport styles');
+      frame.remove();
+      output.textContent = checks.join('\n');
+    }
+    output.textContent = `PASS: ${checks.length} checks\n` + checks.join('\n');
+  } catch (error) { output.textContent = `FAIL after ${checks.length} checks: ${error.stack}\n` + checks.join('\n'); }
+})();
+</script>

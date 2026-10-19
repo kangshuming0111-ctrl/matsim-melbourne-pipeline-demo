@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Skyline depth regression</title>
+<style>
+body { font: 16px system-ui; max-width: 1080px; margin: 32px auto; padding: 12px; }
+pre { white-space: pre-wrap; background: #eef2f4; padding: 16px; }
+.pass { color: #116638; } .fail { color: #ac1426; }
+</style>
+<h1>Skyline depth regression — actual WebGL pixels</h1>
+<p>Serve this directory on port 8765 with the application on 127.0.0.1:8000.
+No MATSim job or existing output is modified. Red is the nearer surface;
+blue bleeding through it is an occlusion failure.</p>
+<button id="run">Run again</button>
+<pre id="results">Running…</pre>
+<div id="samples"></div>
+<script src="http://127.0.0.1:8000/static/vendor/three/three.min.js"></script>
+<script src="http://127.0.0.1:8000/static/vendor/three/shaders/CopyShader.js"></script>
+<script src="http://127.0.0.1:8000/static/vendor/three/shaders/LuminosityHighPassShader.js"></script>
+<script src="http://127.0.0.1:8000/static/vendor/three/postprocessing/EffectComposer.js"></script>
+<script src="http://127.0.0.1:8000/static/vendor/three/postprocessing/RenderPass.js"></script>
+<script src="http://127.0.0.1:8000/static/vendor/three/postprocessing/ShaderPass.js"></script>
+<script src="http://127.0.0.1:8000/static/vendor/three/postprocessing/UnrealBloomPass.js"></script>
+<script src="http://127.0.0.1:8000/static/skyline-rendering.js?v=depth24-1"></script>
+<script>
+'use strict';
+const results = document.getElementById('results');
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+function describeTarget(renderer, target) {
+  const previous = renderer.getRenderTarget();
+  renderer.setRenderTarget(target);
+  const gl = renderer.getContext();
+  const info = {
+    depth: gl.getParameter(gl.DEPTH_BITS),
+    stencil: gl.getParameter(gl.STENCIL_BITS),
+    complete: gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE,
+  };
+  renderer.setRenderTarget(previous);
+  return info;
+}
+function checkPixels(renderer, target) {
+  const pixels = new Uint8Array(8 * 8 * 4);
+  renderer.readRenderTargetPixels(target, target.width / 2 - 4,
+    target.height / 2 - 4, 8, 8, pixels);
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (!(pixels[i] > 200 && pixels[i + 2] < 20)) return false;
+  }
+  return true;
+}
+function testContext(contextName) {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext(contextName, {antialias: false});
+  if (!context) return {context: contextName, skipped: 'context not available'};
+  const renderer = new THREE.WebGLRenderer({canvas, context});
+  renderer.setSize(64, 64);
+  renderer.setPixelRatio(1);
+  const scene = new THREE.Scene();
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000),
+    new THREE.MeshBasicMaterial({color: 0xff0000}));
+  const rear = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000),
+    new THREE.MeshBasicMaterial({color: 0x0000ff}));
+  front.position.z = 0.18; // same separation as the city road / terrain
+  rear.renderOrder = 1;   // draw far surface last: depth MUST still reject it
+  scene.add(front, rear);
+  const camera = SkylineRendering.createCamera(1);
+  const pipeline = SkylineRendering.createPipeline(renderer, scene, camera);
+  const legacyCamera = new THREE.PerspectiveCamera(34, 1, 0.12, 1800);
+  const legacy = new THREE.EffectComposer(renderer);
+  legacy.addPass(new THREE.RenderPass(scene, legacyCamera));
+  const legacyBloom = new THREE.UnrealBloomPass(new THREE.Vector2(64,64), .16,.25,.82);
+  legacy.addPass(legacyBloom);
+  const report = {context: contextName, legacyDepth: null, fixedDepth: null,
+    legacyOcclusionFailures: 0, fixedOcclusionFailures: 0, views: 0};
+  try {
+    for (const distance of [50, 130, 460, 900]) {
+      for (const angle of [-60, -30, 0, 30, 60]) {
+        const theta = angle * Math.PI / 180;
+        camera.position.set(Math.sin(theta)*distance, 0, Math.cos(theta)*distance);
+        camera.lookAt(0, 0, 0);
+        legacyCamera.position.copy(camera.position);
+        legacyCamera.quaternion.copy(camera.quaternion);
+        legacy.render();
+        if (!checkPixels(renderer, legacy.readBuffer)) report.legacyOcclusionFailures++;
+        pipeline.composer.render();
+        if (!checkPixels(renderer, pipeline.composer.readBuffer)) report.fixedOcclusionFailures++;
+        report.views++;
+      }
+    }
+    report.legacyDepth = describeTarget(renderer, legacy.readBuffer);
+    report.fixedDepth = [pipeline.composer.renderTarget1, pipeline.composer.renderTarget2]
+      .map(target => describeTarget(renderer, target));
+    assert(report.fixedDepth.every(d => d.complete && d.depth >= 24), 'Incomplete / low-depth target');
+    assert(report.fixedOcclusionFailures === 0, 'Near surface was cut by rear geometry');
+    // Explicit-target EffectComposer must retain retina resolution on resize.
+    pipeline.composer.setPixelRatio(2);
+    pipeline.composer.setSize(96, 80);
+    camera.aspect = 96 / 80;
+    camera.updateProjectionMatrix();
+    pipeline.composer.render();
+    assert(pipeline.composer.readBuffer.width === 192 && pipeline.composer.readBuffer.height === 160,
+      'Pixel ratio lost after resize');
+    assert(describeTarget(renderer, pipeline.composer.readBuffer).depth >= 24, 'Depth lost after resize');
+    assert(checkPixels(renderer, pipeline.composer.readBuffer), 'Occlusion regressed after resize');
+    report.resize = 'PASS: 192x160, depth >=24, near surface intact';
+    // Regression for the previous pre-OrbitControls height clamp.
+    const controls = {target: new THREE.Vector3(1, -2, 3)};
+    camera.position.set(4, -4, 5);
+    const direction = camera.position.clone().sub(controls.target);
+    SkylineRendering.keepCameraAboveGround(camera, controls, () => 10);
+    assert(camera.position.y >= 12.4 - 1e-9, 'Eye below terrain');
+    assert(camera.position.clone().sub(controls.target).distanceTo(direction) < 1e-9,
+      'Terrain clamp changed look direction');
+    report.groundClearance = 'PASS';
+    assert(context.getError() === context.NO_ERROR, 'WebGL error');
+    const beforeDispose = renderer.info.memory.textures;
+    pipeline.dispose();
+    pipeline.dispose();
+    assert(renderer.info.memory.textures < beforeDispose, 'Pipeline targets leaked');
+    report.dispose = 'PASS (including repeated disposal)';
+    return report;
+  } finally {
+    pipeline.dispose();
+    legacyBloom.dispose();
+    legacy.renderTarget1.dispose();
+    legacy.renderTarget2.dispose();
+    front.geometry.dispose(); rear.geometry.dispose();
+    front.material.dispose(); rear.material.dispose();
+    renderer.dispose();
+    renderer.forceContextLoss();
+  }
+}
+function run() {
+  try {
+    const reports = ['webgl2', 'webgl'].map(testContext);
+    assert(reports.some(r => !r.skipped), 'No WebGL contexts: NOT VERIFIED');
+    results.className = 'pass';
+    results.textContent = 'PASS\n' + JSON.stringify(reports, null, 2);
+  } catch (error) {
+    results.className = 'fail';
+    results.textContent = 'FAIL\n' + error.stack;
+    console.error(error);
+  }
+}
+document.getElementById('run').addEventListener('click', run);
+run();
+</script>
+</html>

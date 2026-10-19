@@ -11,6 +11,8 @@ data/*
 !data/.gitkeep
 !data/sample_region.geojson
 !data/region_*.geojson
+!data/landmarks/
+!data/landmarks/*.json
 output/*
 !output/.gitkeep
 

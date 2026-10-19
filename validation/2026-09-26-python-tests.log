@@ -1,0 +1,452 @@
+test_accepts_normal_output_name (test_api_validation.ApiValidationTests.test_accepts_normal_output_name) ... ok
+test_health_probe_is_read_only_and_identifies_process (test_api_validation.ApiValidationTests.test_health_probe_is_read_only_and_identifies_process) ... ok
+test_ifline_allocates_one_expected_run_id (test_api_validation.ApiValidationTests.test_ifline_allocates_one_expected_run_id) ... ok
+test_ifline_new_road_does_not_require_an_existing_link_id (test_api_validation.ApiValidationTests.test_ifline_new_road_does_not_require_an_existing_link_id) ... ok
+test_ifline_rejects_unknown_intervention_before_queueing (test_api_validation.ApiValidationTests.test_ifline_rejects_unknown_intervention_before_queueing) ... ok
+test_rejects_invalid_numeric_range (test_api_validation.ApiValidationTests.test_rejects_invalid_numeric_range) ... ok
+test_rejects_parent_path (test_api_validation.ApiValidationTests.test_rejects_parent_path) ... ok
+test_rejects_shell_like_name (test_api_validation.ApiValidationTests.test_rejects_shell_like_name) ... ok
+test_rejects_unknown_pipeline_region_before_starting_job (test_api_validation.ApiValidationTests.test_rejects_unknown_pipeline_region_before_starting_job) ... ok
+test_clipped_edge_does_not_get_fake_crown (test_building_geometry.BuildingModelTests.test_clipped_edge_does_not_get_fake_crown) ... ok
+test_concave_roof_never_bridges_missing_corner (test_building_geometry.BuildingModelTests.test_concave_roof_never_bridges_missing_corner) ... ok
+test_courtyard_remains_open_in_setback (test_building_geometry.BuildingModelTests.test_courtyard_remains_open_in_setback) ... ok
+test_exact_duplicate_preserves_taller_envelope_and_source_ids (test_building_geometry.BuildingModelTests.test_exact_duplicate_preserves_taller_envelope_and_source_ids) ... ok
+test_hipped_roof_is_footprint_based_not_axis_aligned_box (test_building_geometry.BuildingModelTests.test_hipped_roof_is_footprint_based_not_axis_aligned_box) ... ok
+test_input_is_not_mutated_and_output_is_deterministic (test_building_geometry.BuildingModelTests.test_input_is_not_mutated_and_output_is_deterministic) ... ok
+test_neighbours_and_real_overlaps_are_not_merged (test_building_geometry.BuildingModelTests.test_neighbours_and_real_overlaps_are_not_merged) ... ok
+test_no_pyramid_over_a_holed_lowrise (test_building_geometry.BuildingModelTests.test_no_pyramid_over_a_holed_lowrise) ... ok
+test_nonfinite_height_is_rejected_with_diagnostic (test_building_geometry.BuildingModelTests.test_nonfinite_height_is_rejected_with_diagnostic) ... ok
+test_rotated_gable_has_exact_footprint_and_bounded_height (test_building_geometry.BuildingModelTests.test_rotated_gable_has_exact_footprint_and_bounded_height) ... ok
+test_rotated_roof_stays_inside_real_footprint (test_building_geometry.BuildingModelTests.test_rotated_roof_stays_inside_real_footprint) ... ok
+test_split_inset_does_not_make_roof_islands (test_building_geometry.BuildingModelTests.test_split_inset_does_not_make_roof_islands) ... ok
+test_thin_building_is_preserved_without_oversized_roof (test_building_geometry.BuildingModelTests.test_thin_building_is_preserved_without_oversized_roof) ... ok
+test_unknown_roof_and_civic_name_do_not_invent_domes (test_building_geometry.BuildingModelTests.test_unknown_roof_and_civic_name_do_not_invent_domes) ... ok
+test_ifline_selects_its_own_building_sidecar (test_building_geometry.BuildingReplayTests.test_ifline_selects_its_own_building_sidecar) ... ok
+test_sidecar_changes_only_building_display_and_detects_stale_input (test_building_geometry.BuildingReplayTests.test_sidecar_changes_only_building_display_and_detects_stale_input) ... ok
+test_absent_invalid_extent_and_invalid_far_footprint_fail_closed (test_building_screen.BuildingScreenTests.test_absent_invalid_extent_and_invalid_far_footprint_fail_closed) ... ok
+test_compile_plan_remains_pure_without_source_loading (test_building_screen.BuildingScreenTests.test_compile_plan_remains_pure_without_source_loading) ... ok
+test_coverage_uses_compiled_snapped_geometry_not_draft (test_building_screen.BuildingScreenTests.test_coverage_uses_compiled_snapped_geometry_not_draft) ... ok
+test_full_width_outside_cache_fails_even_when_centerline_is_inside (test_building_screen.BuildingScreenTests.test_full_width_outside_cache_fails_even_when_centerline_is_inside) ... ok
+test_hole_is_open_and_full_polygon_focus_is_not_clipped_to_corridor (test_building_screen.BuildingScreenTests.test_hole_is_open_and_full_polygon_focus_is_not_clipped_to_corridor) ... ok
+test_invalid_crs_is_a_plan_check_error_not_an_unhandled_rasterio_error (test_building_screen.BuildingScreenTests.test_invalid_crs_is_a_plan_check_error_not_an_unhandled_rasterio_error) ... ok
+test_missing_empty_and_malformed_sources_fail_closed (test_building_screen.BuildingScreenTests.test_missing_empty_and_malformed_sources_fail_closed) ... ok
+test_missing_region_nonmetric_crs_and_bad_scale_fail_closed (test_building_screen.BuildingScreenTests.test_missing_region_nonmetric_crs_and_bad_scale_fail_closed) ... ok
+test_mixed_and_elevated_plans_keep_operation_scope_and_planar_caution (test_building_screen.BuildingScreenTests.test_mixed_and_elevated_plans_keep_operation_scope_and_planar_caution) ... ok
+test_no_road_keeps_legacy_token_with_scene_but_does_not_inspect_bad_building (test_building_screen.BuildingScreenTests.test_no_road_keeps_legacy_token_with_scene_but_does_not_inspect_bad_building) ... ok
+test_no_road_operations_skip_source_and_do_not_claim_a_scan (test_building_screen.BuildingScreenTests.test_no_road_operations_skip_source_and_do_not_claim_a_scan) ... ok
+test_no_road_sidecar_selection_is_read_only_and_keeps_legacy_token (test_building_screen.BuildingScreenTests.test_no_road_sidecar_selection_is_read_only_and_keeps_legacy_token) ... ok
+test_omitted_low_building_is_found_without_display_cap_and_coordinates_stay_compatible (test_building_screen.BuildingScreenTests.test_omitted_low_building_is_found_without_display_cap_and_coordinates_stay_compatible) ... ok
+test_recorded_incomplete_source_is_not_mistaken_for_complete_coverage (test_building_screen.BuildingScreenTests.test_recorded_incomplete_source_is_not_mistaken_for_complete_coverage) ... ok
+test_source_digest_invalidates_token_even_without_new_conflict (test_building_screen.BuildingScreenTests.test_source_digest_invalidates_token_even_without_new_conflict) ... ok
+test_car_link_endpoint_failures_missing_modes_and_degenerate_segments (test_coverage_audit.CoverageAuditTests.test_car_link_endpoint_failures_missing_modes_and_degenerate_segments) ... ok
+test_coordinate_quality_denominator_and_no_imputation (test_coverage_audit.CoverageAuditTests.test_coordinate_quality_denominator_and_no_imputation) ... ok
+test_empty_population_and_empty_plan_return_null_fraction (test_coverage_audit.CoverageAuditTests.test_empty_population_and_empty_plan_return_null_fraction) ... ok
+test_leg_endpoint_diagnostics_and_bbox_transitions (test_coverage_audit.CoverageAuditTests.test_leg_endpoint_diagnostics_and_bbox_transitions) ... ok
+test_missing_shapely_keeps_bbox_and_marks_distance_unavailable (test_coverage_audit.CoverageAuditTests.test_missing_shapely_keeps_bbox_and_marks_distance_unavailable) ... ok
+test_namespaces_gzip_and_activity_alias (test_coverage_audit.CoverageAuditTests.test_namespaces_gzip_and_activity_alias) ... ok
+test_network_without_finite_nodes_is_unavailable_not_outside (test_coverage_audit.CoverageAuditTests.test_network_without_finite_nodes_is_unavailable_not_outside) ... ok
+test_no_explicit_car_modes_and_empty_network_are_not_zero_distance (test_coverage_audit.CoverageAuditTests.test_no_explicit_car_modes_and_empty_network_are_not_zero_distance) ... ok
+test_nonfinite_geometry_result_is_unavailable_and_json_safe (test_coverage_audit.CoverageAuditTests.test_nonfinite_geometry_result_is_unavailable_and_json_safe) ... ok
+test_only_car_segments_and_explicit_mode_tokens_are_used (test_coverage_audit.CoverageAuditTests.test_only_car_segments_and_explicit_mode_tokens_are_used) ... ok
+test_person_aggregates_home_repetition_and_car_endpoint_deduplication (test_coverage_audit.CoverageAuditTests.test_person_aggregates_home_repetition_and_car_endpoint_deduplication) ... ok
+test_plan_selection_diagnostics_exclude_ambiguity (test_coverage_audit.CoverageAuditTests.test_plan_selection_diagnostics_exclude_ambiguity) ... ok
+test_segment_distance_selected_plan_inclusive_bbox_and_mode_groups (test_coverage_audit.CoverageAuditTests.test_segment_distance_selected_plan_inclusive_bbox_and_mode_groups) ... ok
+test_unknown_crs_is_never_labelled_as_metres_or_valid_simulation (test_coverage_audit.CoverageAuditTests.test_unknown_crs_is_never_labelled_as_metres_or_valid_simulation) ... ok
+test_wrong_roots_malformed_files_duplicate_nodes_and_missing_files (test_coverage_audit.CoverageAuditTests.test_wrong_roots_malformed_files_duplicate_nodes_and_missing_files) ... ok
+test_capacity_only_comparison_is_verified_without_mutating_inputs (test_demo_report.DemoReportTests.test_capacity_only_comparison_is_verified_without_mutating_inputs) ... ok
+test_config_allows_only_network_and_output_path_changes (test_demo_report.DemoReportTests.test_config_allows_only_network_and_output_path_changes) ... ok
+test_export_never_overwrites_an_existing_directory (test_demo_report.DemoReportTests.test_export_never_overwrites_an_existing_directory) ... ok
+test_hidden_speed_topology_or_wrong_scale_change_is_rejected (test_demo_report.DemoReportTests.test_hidden_speed_topology_or_wrong_scale_change_is_rejected) ... ok
+test_changed_plans_fail_before_docker_with_durable_manifest (test_expand_demo_network.ExpandDemoNetworkTests.test_changed_plans_fail_before_docker_with_durable_manifest) ... Domain experiment changed: preflight
+Domain experiment failed; evidence preserved at /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpseaavumb/output/domain_experiments/changed
+ok
+test_existing_experiment_and_invalid_name_are_refused_without_generator (test_expand_demo_network.ExpandDemoNetworkTests.test_existing_experiment_and_invalid_name_are_refused_without_generator) ... ok
+test_failed_generator_preserves_error_log_hashes_and_stops_only_owned_container (test_expand_demo_network.ExpandDemoNetworkTests.test_failed_generator_preserves_error_log_hashes_and_stops_only_owned_container) ... Domain experiment failed: preflight
+Domain experiment failed: network_generation
+Domain experiment failed; evidence preserved at /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpignr5u7c/output/domain_experiments/failed
+ok
+test_id_mapping_tracks_geometry_not_old_numbers_and_preserves_direction (test_expand_demo_network.ExpandDemoNetworkTests.test_id_mapping_tracks_geometry_not_old_numbers_and_preserves_direction) ... ok
+test_image_inspection_records_actual_identity_platform_and_checks_source (test_expand_demo_network.ExpandDemoNetworkTests.test_image_inspection_records_actual_identity_platform_and_checks_source) ... ok
+test_interruption_is_recorded_even_if_container_stop_fails (test_expand_demo_network.ExpandDemoNetworkTests.test_interruption_is_recorded_even_if_container_stop_fails) ... Domain experiment interrupted: preflight
+Domain experiment interrupted: network_generation
+Domain experiment failed; evidence preserved at /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpoa0tdoph/output/domain_experiments/interrupted
+ok
+test_mapping_ambiguous_or_far_nodes_are_not_silently_chosen (test_expand_demo_network.ExpandDemoNetworkTests.test_mapping_ambiguous_or_far_nodes_are_not_silently_chosen) ... ok
+test_output_audit_does_not_gate_generation_status_on_coverage_threshold (test_expand_demo_network.ExpandDemoNetworkTests.test_output_audit_does_not_gate_generation_status_on_coverage_threshold) ... Domain experiment low_overlap: preflight
+Domain experiment low_overlap: network_generation
+Domain experiment low_overlap: audit_after_cleaning
+Domain experiment low_overlap: completed
+ok
+test_run_preserves_inputs_has_provenance_audits_and_immutable_image (test_expand_demo_network.ExpandDemoNetworkTests.test_run_preserves_inputs_has_provenance_audits_and_immutable_image) ... Domain experiment test_domain: preflight
+Domain experiment test_domain: network_generation
+Domain experiment test_domain: audit_after_cleaning
+Domain experiment test_domain: completed
+ok
+test_stale_image_fails_without_build_or_generation (test_expand_demo_network.ExpandDemoNetworkTests.test_stale_image_fails_without_build_or_generation) ... Domain experiment stale: preflight
+Domain experiment failed; evidence preserved at /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmp7ic_16_4/output/domain_experiments/stale
+ok
+test_wrong_crs_is_rejected_before_generator (test_expand_demo_network.ExpandDemoNetworkTests.test_wrong_crs_is_rejected_before_generator) ... Domain experiment wrong_crs: preflight
+Domain experiment failed; evidence preserved at /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpy6f4b5un/output/domain_experiments/wrong_crs
+ok
+test_zero_exit_without_artifacts_is_not_completed (test_expand_demo_network.ExpandDemoNetworkTests.test_zero_exit_without_artifacts_is_not_completed) ... Domain experiment empty_result: preflight
+Domain experiment empty_result: network_generation
+Domain experiment empty_result: audit_after_cleaning
+Domain experiment failed; evidence preserved at /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpv5lsgn52/output/domain_experiments/empty_result
+ok
+test_overall_change_is_trip_weighted_and_modes_are_aligned (test_ifline.IfLineComparisonTests.test_overall_change_is_trip_weighted_and_modes_are_aligned) ... ok
+test_capacity_scale_is_relative_to_recorded_baseline (test_ifline.IfLineNetworkTests.test_capacity_scale_is_relative_to_recorded_baseline) ... ok
+test_network_map_exposes_all_modes_editability_and_observed_volume (test_ifline.IfLineNetworkTests.test_network_map_exposes_all_modes_editability_and_observed_volume) ... ok
+test_new_road_adds_connected_bidirectional_links_and_one_geometry_node (test_ifline.IfLineNetworkTests.test_new_road_adds_connected_bidirectional_links_and_one_geometry_node) ... ok
+test_new_road_rejects_an_endpoint_that_does_not_connect (test_ifline.IfLineNetworkTests.test_new_road_rejects_an_endpoint_that_does_not_connect) ... ok
+test_new_road_validation_rejects_invalid_geometry_and_parameters (test_ifline.IfLineNetworkTests.test_new_road_validation_rejects_invalid_geometry_and_parameters) ... ok
+test_rejects_missing_and_non_finite_values (test_ifline.IfLineNetworkTests.test_rejects_missing_and_non_finite_values) ... ok
+test_road_closure_removes_car_but_preserves_other_modes (test_ifline.IfLineNetworkTests.test_road_closure_removes_car_but_preserves_other_modes) ... ok
+test_speed_limit_changes_selected_and_exact_reverse_only (test_ifline.IfLineNetworkTests.test_speed_limit_changes_selected_and_exact_reverse_only) ... ok
+test_30_hour_and_fractional_times_and_invalid_hms (test_impact.ImpactTests.test_30_hour_and_fractional_times_and_invalid_hms) ... ok
+test_absent_events_or_headers_fail_without_fabricating_results (test_impact.ImpactTests.test_absent_events_or_headers_fail_without_fabricating_results) ... ok
+test_actual_export_empty_main_mode_falls_back_only_to_unambiguous_modes (test_impact.ImpactTests.test_actual_export_empty_main_mode_falls_back_only_to_unambiguous_modes) ... ok
+test_actual_plans_hash_not_recorded_hash_is_compared (test_impact.ImpactTests.test_actual_plans_hash_not_recorded_hash_is_compared) ... ok
+test_actual_vehicle_network_modes_and_teleported_availability (test_impact.ImpactTests.test_actual_vehicle_network_modes_and_teleported_availability) ... ok
+test_baseline_window_and_mode_define_the_same_paired_population (test_impact.ImpactTests.test_baseline_window_and_mode_define_the_same_paired_population) ... ok
+test_changed_freeflow_speed_is_allowed_and_delay_reference_is_per_run (test_impact.ImpactTests.test_changed_freeflow_speed_is_allowed_and_delay_reference_is_per_run) ... ok
+test_changes_to_source_files_during_analysis_reject_mixed_evidence (test_impact.ImpactTests.test_changes_to_source_files_during_analysis_reject_mixed_evidence) ... ok
+test_completed_assets_resolution_failure_propagates_without_other_work (test_impact.ImpactTests.test_completed_assets_resolution_failure_propagates_without_other_work) ... ok
+test_completion_counts_by_mode_window_and_stuck_are_diagnostics (test_impact.ImpactTests.test_completion_counts_by_mode_window_and_stuck_are_diagnostics) ... ok
+test_config_plans_pointer_must_match_resolved_actual_artifact (test_impact.ImpactTests.test_config_plans_pointer_must_match_resolved_actual_artifact) ... ok
+test_counts_real_zero_separately_from_missing_measurement (test_impact.ImpactTests.test_counts_real_zero_separately_from_missing_measurement) ... ok
+test_departure_partial_and_parking_gap_and_unfinished_entries_excluded (test_impact.ImpactTests.test_departure_partial_and_parking_gap_and_unfinished_entries_excluded) ... ok
+test_entered_time_window_not_exit_time (test_impact.ImpactTests.test_entered_time_window_not_exit_time) ... ok
+test_fixed_bins_and_strict_neutral_boundary (test_impact.ImpactTests.test_fixed_bins_and_strict_neutral_boundary) ... ok
+test_geometry_changes_block_all_signed_deltas_and_new_removed_links_stay_in_map (test_impact.ImpactTests.test_geometry_changes_block_all_signed_deltas_and_new_removed_links_stay_in_map) ... ok
+test_invalid_and_missing_and_duplicate_rows_never_become_zero_duration (test_impact.ImpactTests.test_invalid_and_missing_and_duplicate_rows_never_become_zero_duration) ... ok
+test_no_paired_trips_return_null_distributions (test_impact.ImpactTests.test_no_paired_trips_return_null_distributions) ... ok
+test_normalizes_xml_order_and_ignores_only_two_permitted_parameters (test_impact.ImpactTests.test_normalizes_xml_order_and_ignores_only_two_permitted_parameters) ... ok
+test_overlapping_trip_intervals_do_not_guess_selected_membership (test_impact.ImpactTests.test_overlapping_trip_intervals_do_not_guess_selected_membership) ... ok
+test_paired_delta_distribution_not_difference_of_percentiles (test_impact.ImpactTests.test_paired_delta_distribution_not_difference_of_percentiles) ... ok
+test_partial_arrival_and_malformed_vehicle_leave_break_pending_pairs (test_impact.ImpactTests.test_partial_arrival_and_malformed_vehicle_leave_break_pending_pairs) ... ok
+test_rejects_bad_windows_modes_and_selection_before_resolving (test_impact.ImpactTests.test_rejects_bad_windows_modes_and_selection_before_resolving) ... ok
+test_rejects_config_drift_even_with_lying_matching_manifest (test_impact.ImpactTests.test_rejects_config_drift_even_with_lying_matching_manifest) ... ok
+test_rejects_missing_seed_instead_of_manifest_default (test_impact.ImpactTests.test_rejects_missing_seed_instead_of_manifest_default) ... ok
+test_selection_uses_either_run_and_whole_trip_but_retains_entire_map (test_impact.ImpactTests.test_selection_uses_either_run_and_whole_trip_but_retains_entire_map) ... ok
+test_self_equivalent_pair_and_privacy_and_json_and_no_writes (test_impact.ImpactTests.test_self_equivalent_pair_and_privacy_and_json_and_no_writes) ... ok
+test_split_shortened_existing_id_and_new_piece_are_unavailable (test_impact.ImpactTests.test_split_shortened_existing_id_and_new_piece_are_unavailable) ... ok
+test_trip_number_not_person_alone_and_reused_vehicle_does_not_select_all_trips (test_impact.ImpactTests.test_trip_number_not_person_alone_and_reused_vehicle_does_not_select_all_trips) ... ok
+test_zero_second_observed_traversal_is_available_and_signed_delay_not_clipped (test_impact.ImpactTests.test_zero_second_observed_traversal_is_available_and_signed_delay_not_clipped) ... ok
+test_all_supported_modes_and_empty_selection_reach_analysis_unchanged (test_impact_api.ImpactApiTests.test_all_supported_modes_and_empty_selection_reach_analysis_unchanged) ... ok
+test_coverage_audit_errors_map_400_or_404 (test_impact_api.ImpactApiTests.test_coverage_audit_errors_map_400_or_404) ... ok
+test_coverage_resolver_failures_stop_before_audit_and_map_status (test_impact_api.ImpactApiTests.test_coverage_resolver_failures_stop_before_audit_and_map_status) ... ok
+test_coverage_with_tiny_actual_xml_is_read_only_and_private (test_impact_api.ImpactApiTests.test_coverage_with_tiny_actual_xml_is_read_only_and_private) ... ok
+test_get_coverage_resolves_requested_run_and_preserves_nulls (test_impact_api.ImpactApiTests.test_get_coverage_resolves_requested_run_and_preserves_nulls) ... ok
+test_get_impact_defaults_and_nullable_payload_are_preserved (test_impact_api.ImpactApiTests.test_get_impact_defaults_and_nullable_payload_are_preserved) ... ok
+test_get_impact_passes_typed_window_mode_and_comma_selected_ids (test_impact_api.ImpactApiTests.test_get_impact_passes_typed_window_mode_and_comma_selected_ids) ... ok
+test_get_only_routes_reject_post_without_calling_modules (test_impact_api.ImpactApiTests.test_get_only_routes_reject_post_without_calling_modules) ... ok
+test_impact_incomparable_unknown_links_and_shape_errors_map_to_400 (test_impact_api.ImpactApiTests.test_impact_incomparable_unknown_links_and_shape_errors_map_to_400) ... ok
+test_impact_missing_artifacts_map_to_404_and_keep_message (test_impact_api.ImpactApiTests.test_impact_missing_artifacts_map_to_404_and_keep_message) ... ok
+test_invalid_coverage_run_names_are_400_before_audit (test_impact_api.ImpactApiTests.test_invalid_coverage_run_names_are_400_before_audit) ... ok
+test_invalid_impact_run_names_are_400_through_real_resolver (test_impact_api.ImpactApiTests.test_invalid_impact_run_names_are_400_through_real_resolver) ... ok
+test_missing_required_pair_queries_are_422_before_analysis (test_impact_api.ImpactApiTests.test_missing_required_pair_queries_are_422_before_analysis) ... ok
+test_non_numeric_query_times_are_422_before_analysis (test_impact_api.ImpactApiTests.test_non_numeric_query_times_are_422_before_analysis) ... ok
+test_real_domain_validation_returns_400_before_asset_resolution (test_impact_api.ImpactApiTests.test_real_domain_validation_returns_400_before_asset_resolution) ... ok
+test_failed_job_never_retains_a_result (test_jobs.JobHistoryTests.test_failed_job_never_retains_a_result) ... ok
+test_history_survives_reload_and_marks_interrupted_job (test_jobs.JobHistoryTests.test_history_survives_reload_and_marks_interrupted_job) ... ok
+test_job_rejects_result_from_another_run (test_jobs.JobHistoryTests.test_job_rejects_result_from_another_run) ... ok
+test_closed_way_and_split_relation_with_hole (test_landmark_geometry.OsmAreaExtractionTests.test_closed_way_and_split_relation_with_hole) ... ok
+test_bad_coordinate_does_not_create_a_replacement_edge (test_landmark_geometry.PolygonClippingTests.test_bad_coordinate_does_not_create_a_replacement_edge) ... ok
+test_concave_intersection_can_split_without_connecting_bridge (test_landmark_geometry.PolygonClippingTests.test_concave_intersection_can_split_without_connecting_bridge) ... ok
+test_cross_boundary_area_is_clipped_not_dropped (test_landmark_geometry.PolygonClippingTests.test_cross_boundary_area_is_clipped_not_dropped) ... ok
+test_holes_survive_clipping (test_landmark_geometry.PolygonClippingTests.test_holes_survive_clipping) ... ok
+test_legacy_open_ring_and_duplicate_endpoint_work (test_landmark_geometry.PolygonClippingTests.test_legacy_open_ring_and_duplicate_endpoint_work) ... ok
+test_outside_and_boundary_only_touch_have_no_surface (test_landmark_geometry.PolygonClippingTests.test_outside_and_boundary_only_touch_have_no_surface) ... ok
+test_projection_uses_target_coordinates (test_landmark_geometry.PolygonClippingTests.test_projection_uses_target_coordinates) ... ok
+test_repair_retains_both_bowtie_lobes (test_landmark_geometry.PolygonClippingTests.test_repair_retains_both_bowtie_lobes) ... ok
+test_surrounding_area_with_no_vertex_inside_is_retained (test_landmark_geometry.PolygonClippingTests.test_surrounding_area_with_no_vertex_inside_is_retained) ... ok
+test_valid_thin_polygon_is_not_rejected (test_landmark_geometry.PolygonClippingTests.test_valid_thin_polygon_is_not_rejected) ... ok
+test_full_scene_export_retains_roads_vehicles_and_point_line_layers (test_landmark_geometry.SceneLandmarkRefreshTests.test_full_scene_export_retains_roads_vehicles_and_point_line_layers) ... ok
+test_ifline_payload_never_uses_baseline_sidecar (test_landmark_geometry.SceneLandmarkRefreshTests.test_ifline_payload_never_uses_baseline_sidecar) ... ok
+test_invalid_or_wrong_source_sidecar_is_not_loaded (test_landmark_geometry.SceneLandmarkRefreshTests.test_invalid_or_wrong_source_sidecar_is_not_loaded) ... ok
+test_loader_and_input_record_choose_same_v2_cache_with_legacy_fallback (test_landmark_geometry.SceneLandmarkRefreshTests.test_loader_and_input_record_choose_same_v2_cache_with_legacy_fallback) ... ok
+test_refresh_preserves_traffic_and_original_file (test_landmark_geometry.SceneLandmarkRefreshTests.test_refresh_preserves_traffic_and_original_file) ... ok
+test_scene_preserves_holes_id_and_reports_clipping (test_landmark_geometry.SceneLandmarkRefreshTests.test_scene_preserves_holes_id_and_reports_clipping) ... ok
+test_ambiguous_alternate_empty_and_network_bound_plans_rejected (test_network_domain.NetworkDomainTests.test_ambiguous_alternate_empty_and_network_bound_plans_rejected) ... ok
+test_boundary_is_densified_not_only_four_corners (test_network_domain.NetworkDomainTests.test_boundary_is_densified_not_only_four_corners) ... ok
+test_changed_plans_or_region_and_nonfinite_network_stop_gate (test_network_domain.NetworkDomainTests.test_changed_plans_or_region_and_nonfinite_network_stop_gate) ... ok
+test_empty_degenerate_and_oversized_population_domains_rejected (test_network_domain.NetworkDomainTests.test_empty_degenerate_and_oversized_population_domains_rejected) ... ok
+test_finite_coordinate_overflow_has_json_safe_failure_record (test_network_domain.NetworkDomainTests.test_finite_coordinate_overflow_has_json_safe_failure_record) ... ok
+test_incomplete_bbox_gate_saves_audit_before_raising (test_network_domain.NetworkDomainTests.test_incomplete_bbox_gate_saves_audit_before_raising) ... ok
+test_invalid_coordinates_fail_without_silently_dropping_activities (test_network_domain.NetworkDomainTests.test_invalid_coordinates_fail_without_silently_dropping_activities) ... ok
+test_namespaces_gzip_act_and_unmarked_single_plan (test_network_domain.NetworkDomainTests.test_namespaces_gzip_act_and_unmarked_single_plan) ... ok
+test_native_bbox_serialized_as_unbuffered_wgs84_preserves_source (test_network_domain.NetworkDomainTests.test_native_bbox_serialized_as_unbuffered_wgs84_preserves_source) ... ok
+test_output_collision_preserves_first_manifest_and_geojson (test_network_domain.NetworkDomainTests.test_output_collision_preserves_first_manifest_and_geojson) ... ok
+test_parse_errors_preserve_failure_manifest (test_network_domain.NetworkDomainTests.test_parse_errors_preserve_failure_manifest) ... ok
+test_successful_post_cleaning_gate_has_hashed_audit_not_transport_claim (test_network_domain.NetworkDomainTests.test_successful_post_cleaning_gate_has_hashed_audit_not_transport_claim) ... ok
+test_unknown_crs_invalid_budget_buffer_and_traversal_rejected (test_network_domain.NetworkDomainTests.test_unknown_crs_invalid_budget_buffer_and_traversal_rejected) ... ok
+test_all_available_regions_are_experimental (test_pipeline_reliability.ActivityDomainPipelineTests.test_all_available_regions_are_experimental) ... ok
+test_bbox_gate_failure_records_audit_and_never_starts_simulation (test_pipeline_reliability.ActivityDomainPipelineTests.test_bbox_gate_failure_records_audit_and_never_starts_simulation) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+ok
+test_cbd_explicit_v2_keeps_experimental_status_and_copies_hashed_evidence (test_pipeline_reliability.ActivityDomainPipelineTests.test_cbd_explicit_v2_keeps_experimental_status_and_copies_hashed_evidence) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+Activity-domain precondition passed; transport/simulation validity is not established.
+ok
+test_changed_input_after_gate_stops_before_simulation (test_pipeline_reliability.ActivityDomainPipelineTests.test_changed_input_after_gate_stops_before_simulation) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+Activity-domain precondition passed; transport/simulation validity is not established.
+ok
+test_generation_error_retains_domain_without_fabricating_audit (test_pipeline_reliability.ActivityDomainPipelineTests.test_generation_error_retains_domain_without_fabricating_audit) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+ok
+test_nonfinite_input_records_failure_without_network_or_simulation (test_pipeline_reliability.ActivityDomainPipelineTests.test_nonfinite_input_records_failure_without_network_or_simulation) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+ok
+test_other_region_retains_legacy_strategy_and_explicit_experimental_profile (test_pipeline_reliability.ActivityDomainPipelineTests.test_other_region_retains_legacy_strategy_and_explicit_experimental_profile) ... === Step 1/3: building network ===
+
+=== Step 2/3: deriving matching SA1 subset ===
+
+=== Step 3/3: building demand for the same SA1 subset ===
+
+=== Cross-checking coverage ===
+100.0% of demand activity locations fall inside network's coverage area
+ok
+test_stale_image_failure_is_recorded_before_demand (test_pipeline_reliability.ActivityDomainPipelineTests.test_stale_image_failure_is_recorded_before_demand) ... ok
+test_completion_verification_requires_clean_shutdown (test_pipeline_reliability.PipelineReliabilityTests.test_completion_verification_requires_clean_shutdown) ... ok
+test_failed_external_stage_leaves_failed_manifest (test_pipeline_reliability.PipelineReliabilityTests.test_failed_external_stage_leaves_failed_manifest) ... ok
+test_check_token_changes_with_input_but_reuses_canonical_labels (test_planning.PlanningTests.test_check_token_changes_with_input_but_reuses_canonical_labels) ... ok
+test_conflicts_use_width_holes_and_stable_names_without_mutating_buildings (test_planning.PlanningTests.test_conflicts_use_width_holes_and_stable_names_without_mutating_buildings) ... ok
+test_disabled_endpoint_rejects_noncar_and_elevated_nodes (test_planning.PlanningTests.test_disabled_endpoint_rejects_noncar_and_elevated_nodes) ... ok
+test_disabled_endpoints_require_exact_network_connection (test_planning.PlanningTests.test_disabled_endpoints_require_exact_network_connection) ... ok
+test_disabled_intermediate_snap_preserves_geometry_and_canonical_report (test_planning.PlanningTests.test_disabled_intermediate_snap_preserves_geometry_and_canonical_report) ... ok
+test_elevated_middle_never_connects_to_ground_crossing (test_planning.PlanningTests.test_elevated_middle_never_connects_to_ground_crossing) ... ok
+test_elevated_points_remain_unsnapped_for_either_flag (test_planning.PlanningTests.test_elevated_points_remain_unsnapped_for_either_flag) ... ok
+test_exact_disabled_endpoints_reuse_ground_car_nodes (test_planning.PlanningTests.test_exact_disabled_endpoints_reuse_ground_car_nodes) ... ok
+test_ground_cross_splits_both_directions_into_one_shared_junction (test_planning.PlanningTests.test_ground_cross_splits_both_directions_into_one_shared_junction) ... ok
+test_invalid_building_geometry_cannot_silently_pass (test_planning.PlanningTests.test_invalid_building_geometry_cannot_silently_pass) ... ok
+test_invalid_last_operation_is_atomic (test_planning.PlanningTests.test_invalid_last_operation_is_atomic) ... ok
+test_legacy_snap_defaults_match_explicit_true (test_planning.PlanningTests.test_legacy_snap_defaults_match_explicit_true) ... ok
+test_modify_split_descendants_preserves_capacity_and_bike_mode (test_planning.PlanningTests.test_modify_split_descendants_preserves_capacity_and_bike_mode) ... ok
+test_snap_points_survive_check_and_affect_token (test_planning.PlanningTests.test_snap_points_survive_check_and_affect_token) ... ok
+test_snap_points_validation_rejects_wrong_lengths_and_nonbooleans (test_planning.PlanningTests.test_snap_points_validation_rejects_wrong_lengths_and_nonbooleans) ... ok
+test_split_and_missing_observations_are_not_reported_as_delay_improvements (test_planning.PlanningTests.test_split_and_missing_observations_are_not_reported_as_delay_improvements) ... ok
+test_stale_or_unacknowledged_plan_never_queues (test_planning.PlanningTests.test_stale_or_unacknowledged_plan_never_queues) ... ok
+test_steep_ramp_offmap_and_overlap_are_blocked (test_planning.PlanningTests.test_steep_ramp_offmap_and_overlap_are_blocked) ... ok
+test_submission_binds_exact_job_and_run_identity (test_planning.PlanningTests.test_submission_binds_exact_job_and_run_identity) ... ok
+test_validation_rejects_nested_nan_fractional_lanes_and_elevated_endpoints (test_planning.PlanningTests.test_validation_rejects_nested_nan_fractional_lanes_and_elevated_endpoints) ... ok
+test_car_mode_range_excludes_missing_seed_instead_of_imputing_zero (test_planning_case.PlanningCaseAggregationTests.test_car_mode_range_excludes_missing_seed_instead_of_imputing_zero) ... ok
+test_car_mode_range_is_missing_when_either_side_has_no_car_trips (test_planning_case.PlanningCaseAggregationTests.test_car_mode_range_is_missing_when_either_side_has_no_car_trips) ... ok
+test_optional_impact_contract_and_module_absence_only_fallback (test_planning_case.PlanningCaseAggregationTests.test_optional_impact_contract_and_module_absence_only_fallback) ... ok
+test_seed_pairing_ranges_and_alternative_relative_denominator (test_planning_case.PlanningCaseAggregationTests.test_seed_pairing_ranges_and_alternative_relative_denominator) ... ok
+test_undefined_percentage_stays_missing_not_zero (test_planning_case.PlanningCaseAggregationTests.test_undefined_percentage_stays_missing_not_zero) ... ok
+test_actual_seed_mismatch_is_not_accepted_from_manifest_alone (test_planning_case.PlanningCaseTests.test_actual_seed_mismatch_is_not_accepted_from_manifest_alone) ... 2026-09-26T06:54:40.372138+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+ok
+test_bootstrap_waits_for_generation_completion_and_activity_coverage (test_planning_case.PlanningCaseTests.test_bootstrap_waits_for_generation_completion_and_activity_coverage) ... ok
+test_case_lock_prevents_concurrent_runner (test_planning_case.PlanningCaseTests.test_case_lock_prevents_concurrent_runner) ... ok
+test_changed_building_scene_invalidates_preparation (test_planning_case.PlanningCaseTests.test_changed_building_scene_invalidates_preparation) ... ok
+test_changed_snapshot_and_case_spec_stop_before_execution (test_planning_case.PlanningCaseTests.test_changed_snapshot_and_case_spec_stop_before_execution) ... ok
+test_cli_requires_action_and_disallows_changing_frozen_run_controls (test_planning_case.PlanningCaseTests.test_cli_requires_action_and_disallows_changing_frozen_run_controls) ... usage: python -m unittest [-h] (--prepare | --bootstrap | --run CASE_DIR)
+                          [--source-run SOURCE_RUN] [--case-id CASE_ID]
+                          [--network-dir NETWORK_DIR]
+                          [--alternative-route {straight,detour}]
+                          [--seeds SEEDS [SEEDS ...]]
+                          [--last-iteration LAST_ITERATION]
+                          [--acknowledge-conceptual-conflicts] [--resume]
+python -m unittest: error: one of the arguments --prepare --bootstrap --run is required
+usage: python -m unittest [-h] (--prepare | --bootstrap | --run CASE_DIR)
+                          [--source-run SOURCE_RUN] [--case-id CASE_ID]
+                          [--network-dir NETWORK_DIR]
+                          [--alternative-route {straight,detour}]
+                          [--seeds SEEDS [SEEDS ...]]
+                          [--last-iteration LAST_ITERATION]
+                          [--acknowledge-conceptual-conflicts] [--resume]
+python -m unittest: error: argument --run: not allowed with argument --prepare
+usage: python -m unittest [-h] (--prepare | --bootstrap | --run CASE_DIR)
+                          [--source-run SOURCE_RUN] [--case-id CASE_ID]
+                          [--network-dir NETWORK_DIR]
+                          [--alternative-route {straight,detour}]
+                          [--seeds SEEDS [SEEDS ...]]
+                          [--last-iteration LAST_ITERATION]
+                          [--acknowledge-conceptual-conflicts] [--resume]
+python -m unittest: error: Run controls are frozen; use prepare options to create a new case
+usage: python -m unittest [-h] (--prepare | --bootstrap | --run CASE_DIR)
+                          [--source-run SOURCE_RUN] [--case-id CASE_ID]
+                          [--network-dir NETWORK_DIR]
+                          [--alternative-route {straight,detour}]
+                          [--seeds SEEDS [SEEDS ...]]
+                          [--last-iteration LAST_ITERATION]
+                          [--acknowledge-conceptual-conflicts] [--resume]
+python -m unittest: error: Acknowledgement and --resume apply only to --run
+ok
+test_completed_artifact_drift_blocks_recovery (test_planning_case.PlanningCaseTests.test_completed_artifact_drift_blocks_recovery) ... 2026-09-26T06:54:40.418086+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-09-26T06:54:40.428034+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+ok
+test_detour_conflict_is_retained_but_not_acknowledgeable_as_prepared_case (test_planning_case.PlanningCaseTests.test_detour_conflict_is_retained_but_not_acknowledgeable_as_prepared_case) ... ok
+test_detour_is_fixed_geometry_with_zero_known_conflicts_and_margin (test_planning_case.PlanningCaseTests.test_detour_is_fixed_geometry_with_zero_known_conflicts_and_margin) ... ok
+test_detour_rejects_long_parallel_duplicate_road_segments (test_planning_case.PlanningCaseTests.test_detour_rejects_long_parallel_duplicate_road_segments) ... ok
+test_detour_requires_full_source_before_preparation (test_planning_case.PlanningCaseTests.test_detour_requires_full_source_before_preparation) ... ok
+test_display_cap_requires_full_source_and_catches_an_omitted_obstacle (test_planning_case.PlanningCaseTests.test_display_cap_requires_full_source_and_catches_an_omitted_obstacle) ... ok
+test_duplicate_iteration_row_is_not_accepted_by_row_count_alone (test_planning_case.PlanningCaseTests.test_duplicate_iteration_row_is_not_accepted_by_row_count_alone) ... 2026-09-26T06:54:40.504622+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+ok
+test_existing_native_output_is_not_reused (test_planning_case.PlanningCaseTests.test_existing_native_output_is_not_reused) ... ok
+test_expanded_network_bootstrap_reuses_original_plans_then_prepare_launches_nothing (test_planning_case.PlanningCaseTests.test_expanded_network_bootstrap_reuses_original_plans_then_prepare_launches_nothing) ... ok
+test_explicit_acknowledgement_is_required_before_any_simulation (test_planning_case.PlanningCaseTests.test_explicit_acknowledgement_is_required_before_any_simulation) ... ok
+test_failed_branch_retains_artifacts_and_resumes_under_new_id (test_planning_case.PlanningCaseTests.test_failed_branch_retains_artifacts_and_resumes_under_new_id) ... 2026-09-26T06:54:40.558504+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-09-26T06:54:40.567695+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-09-26T06:54:40.581304+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a02
+2026-09-26T06:54:40.594057+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+ok
+test_full_source_checks_extent_validity_and_hash_before_simulation (test_planning_case.PlanningCaseTests.test_full_source_checks_extent_validity_and_hash_before_simulation) ... ok
+test_full_source_detour_runs_the_fixed_triple_with_fixture_simulator (test_planning_case.PlanningCaseTests.test_full_source_detour_runs_the_fixed_triple_with_fixture_simulator) ... 2026-09-26T06:54:40.682900+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-09-26T06:54:40.691472+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-09-26T06:54:40.704996+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+ok
+test_invalid_controls_and_unknown_geometry_fail_closed (test_planning_case.PlanningCaseTests.test_invalid_controls_and_unknown_geometry_fail_closed) ... ok
+test_matched_triples_use_fresh_baseline_same_population_and_two_compiled_branches (test_planning_case.PlanningCaseTests.test_matched_triples_use_fresh_baseline_same_population_and_two_compiled_branches) ... 2026-09-26T06:54:40.752412+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-09-26T06:54:40.761169+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-09-26T06:54:40.773557+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+2026-09-26T06:54:40.791579+00:00 seed=4712 stage=baseline run=test_case_s4712_baseline_a01
+2026-09-26T06:54:40.799610+00:00 seed=4712 stage=closure run=test_case_s4712_closure_a01
+2026-09-26T06:54:40.812406+00:00 seed=4712 stage=alternative run=test_case_s4712_alternative_a01
+2026-09-26T06:54:40.832600+00:00 seed=4713 stage=baseline run=test_case_s4713_baseline_a01
+2026-09-26T06:54:40.840916+00:00 seed=4713 stage=closure run=test_case_s4713_closure_a01
+2026-09-26T06:54:40.852522+00:00 seed=4713 stage=alternative run=test_case_s4713_alternative_a01
+ok
+test_nested_domain_manifest_must_be_completed_and_bind_the_fixed_inputs (test_planning_case.PlanningCaseTests.test_nested_domain_manifest_must_be_completed_and_bind_the_fixed_inputs) ... ok
+test_network_override_cannot_relabel_an_old_record_without_bootstrap (test_planning_case.PlanningCaseTests.test_network_override_cannot_relabel_an_old_record_without_bootstrap) ... ok
+test_new_baseline_source_building_diagnostics_must_match_preparation (test_planning_case.PlanningCaseTests.test_new_baseline_source_building_diagnostics_must_match_preparation) ... 2026-09-26T06:54:40.922946+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-09-26T06:54:40.932336+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-09-26T06:54:40.944899+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+ok
+test_original_corridor_coordinate_matching_fails_on_drift_and_ambiguity (test_planning_case.PlanningCaseTests.test_original_corridor_coordinate_matching_fails_on_drift_and_ambiguity) ... ok
+test_prepare_and_completed_cases_never_overwrite (test_planning_case.PlanningCaseTests.test_prepare_and_completed_cases_never_overwrite) ... 2026-09-26T06:54:40.963339+00:00 seed=4711 stage=baseline run=test_case_s4711_baseline_a01
+2026-09-26T06:54:40.972983+00:00 seed=4711 stage=closure run=test_case_s4711_closure_a01
+2026-09-26T06:54:40.984537+00:00 seed=4711 stage=alternative run=test_case_s4711_alternative_a01
+ok
+test_prepare_records_exact_geometry_conflicts_and_fixed_inputs_without_running (test_planning_case.PlanningCaseTests.test_prepare_records_exact_geometry_conflicts_and_fixed_inputs_without_running) ... ok
+test_actual_control_source_mutations_are_detected (test_planning_catalog.PlanningCatalogTests.test_actual_control_source_mutations_are_detected) ... ok
+test_aggregate_measurements_distinguish_missing_from_observed_zero (test_planning_catalog.PlanningCatalogTests.test_aggregate_measurements_distinguish_missing_from_observed_zero) ... ok
+test_aggregate_seed_partitions_and_paired_rows_must_match (test_planning_catalog.PlanningCatalogTests.test_aggregate_seed_partitions_and_paired_rows_must_match) ... ok
+test_api_rejects_limit_without_scheduling_work (test_planning_catalog.PlanningCatalogTests.test_api_rejects_limit_without_scheduling_work) ... ok
+test_bad_record_does_not_hide_other_cases_through_api (test_planning_catalog.PlanningCatalogTests.test_bad_record_does_not_hide_other_cases_through_api) ... ok
+test_changed_aggregate_and_outside_evidence_fail_closed (test_planning_catalog.PlanningCatalogTests.test_changed_aggregate_and_outside_evidence_fail_closed) ... ok
+test_changed_result_identity_or_iteration_cannot_publish_a_link (test_planning_catalog.PlanningCatalogTests.test_changed_result_identity_or_iteration_cannot_publish_a_link) ... ok
+test_completed_label_cannot_hide_missing_stages (test_planning_catalog.PlanningCatalogTests.test_completed_label_cannot_hide_missing_stages) ... ok
+test_control_evidence_must_name_the_resolved_file (test_planning_catalog.PlanningCatalogTests.test_control_evidence_must_name_the_resolved_file) ... ok
+test_correctly_hashed_non_object_spec_is_unavailable (test_planning_catalog.PlanningCatalogTests.test_correctly_hashed_non_object_spec_is_unavailable) ... ok
+test_empty_catalog_is_empty_not_fake_success (test_planning_catalog.PlanningCatalogTests.test_empty_catalog_is_empty_not_fake_success) ... ok
+test_file_changing_during_hashing_is_rejected (test_planning_catalog.PlanningCatalogTests.test_file_changing_during_hashing_is_rejected) ... ok
+test_latest_unfinished_attempt_cannot_reuse_older_completed_link (test_planning_catalog.PlanningCatalogTests.test_latest_unfinished_attempt_cannot_reuse_older_completed_link) ... ok
+test_malformed_or_mismatched_identity_is_not_silently_omitted (test_planning_catalog.PlanningCatalogTests.test_malformed_or_mismatched_identity_is_not_silently_omitted) ... ok
+test_missing_control_evidence_is_not_marked_verified (test_planning_catalog.PlanningCatalogTests.test_missing_control_evidence_is_not_marked_verified) ... ok
+test_missing_malformed_aggregate_does_not_revoke_verified_links (test_planning_catalog.PlanningCatalogTests.test_missing_malformed_aggregate_does_not_revoke_verified_links) ... ok
+test_modified_spec_does_not_relabel_experiment (test_planning_catalog.PlanningCatalogTests.test_modified_spec_does_not_relabel_experiment) ... ok
+test_nested_shapes_and_boolean_seeds_fail_closed (test_planning_catalog.PlanningCatalogTests.test_nested_shapes_and_boolean_seeds_fail_closed) ... ok
+test_partial_failure_preserves_only_verified_completed_stage (test_planning_catalog.PlanningCatalogTests.test_partial_failure_preserves_only_verified_completed_stage) ... ok
+test_prepared_case_has_no_completed_links_and_does_not_resolve_or_run (test_planning_catalog.PlanningCatalogTests.test_prepared_case_has_no_completed_links_and_does_not_resolve_or_run) ... ok
+test_real_resolver_contract_and_read_only_execution (test_planning_catalog.PlanningCatalogTests.test_real_resolver_contract_and_read_only_execution) ... ok
+test_record_completion_identity_and_controls_are_not_resolver_defaults (test_planning_catalog.PlanningCatalogTests.test_record_completion_identity_and_controls_are_not_resolver_defaults) ... ok
+test_rehashed_result_cannot_hide_a_different_population (test_planning_catalog.PlanningCatalogTests.test_rehashed_result_cannot_hide_a_different_population) ... ok
+test_resolver_identity_seed_and_iteration_mismatches_fail_closed (test_planning_catalog.PlanningCatalogTests.test_resolver_identity_seed_and_iteration_mismatches_fail_closed) ... ok
+test_running_snapshot_resolves_only_completed_attempts (test_planning_catalog.PlanningCatalogTests.test_running_snapshot_resolves_only_completed_attempts) ... ok
+test_seed_rows_must_match_spec_and_not_duplicate (test_planning_catalog.PlanningCatalogTests.test_seed_rows_must_match_spec_and_not_duplicate) ... ok
+test_shared_control_files_are_hashed_once_per_read_not_cached_forever (test_planning_catalog.PlanningCatalogTests.test_shared_control_files_are_hashed_once_per_read_not_cached_forever) ... ok
+test_source_evidence_cannot_escape_output_through_symlink (test_planning_catalog.PlanningCatalogTests.test_source_evidence_cannot_escape_output_through_symlink) ... ok
+test_stale_aggregate_cannot_claim_unfinished_seed_is_complete (test_planning_catalog.PlanningCatalogTests.test_stale_aggregate_cannot_claim_unfinished_seed_is_complete) ... ok
+test_stat_failure_does_not_hide_healthy_case (test_planning_catalog.PlanningCatalogTests.test_stat_failure_does_not_hide_healthy_case) ... ok
+test_top_level_json_shapes_are_isolated_as_unavailable (test_planning_catalog.PlanningCatalogTests.test_top_level_json_shapes_are_isolated_as_unavailable) ... ok
+test_valid_completed_case_declares_limited_controls_scope (test_planning_catalog.PlanningCatalogTests.test_valid_completed_case_declares_limited_controls_scope) ... ok
+test_missing_demand_data_blocks_pipeline (test_preflight.PreflightTests.test_missing_demand_data_blocks_pipeline) ... ok
+test_ready_when_required_data_and_runtime_are_available (test_preflight.PreflightTests.test_ready_when_required_data_and_runtime_are_available) ... ok
+test_both_streams_are_saved_and_repeated_attempts_append (test_process_logging.ProcessLoggingTests.test_both_streams_are_saved_and_repeated_attempts_append) ... External process console log: /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpxbu79fxy/logs/console.log
+External process console log: /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpxbu79fxy/logs/console.log
+ok
+test_closed_parent_pipes_cannot_kill_child_or_progress_reporting (test_process_logging.ProcessLoggingTests.test_closed_parent_pipes_cannot_kill_child_or_progress_reporting) ... ok
+test_failure_preserves_output_exit_code_and_log_path (test_process_logging.ProcessLoggingTests.test_failure_preserves_output_exit_code_and_log_path) ... External process console log: /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpnjui854v/failure.log
+ok
+test_file_io_contract_and_no_sensitive_argv_in_log_header (test_process_logging.ProcessLoggingTests.test_file_io_contract_and_no_sensitive_argv_in_log_header) ... External process console log: /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpedh5modp/contract.log
+ok
+test_log_name_cannot_escape_the_log_directory (test_process_logging.ProcessLoggingTests.test_log_name_cannot_escape_the_log_directory) ... ok
+test_signal_failure_is_not_silently_successful (test_process_logging.ProcessLoggingTests.test_signal_failure_is_not_silently_successful) ... External process console log: /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmp9b_wakh1/signal.log
+ok
+test_unavailable_command_reports_log_location (test_process_logging.ProcessLoggingTests.test_unavailable_command_reports_log_location) ... External process console log: /private/var/folders/m9/xctphjwx07914nvtddyzjqh00000gn/T/tmpw4qkeg3n/start.log
+ok
+test_unwritable_log_prevents_work_from_starting (test_process_logging.ProcessLoggingTests.test_unwritable_log_prevents_work_from_starting) ... ok
+test_all_docker_stages_use_explicit_logs_outside_generated_directories (test_runner_configuration.RunnerConfigurationTests.test_all_docker_stages_use_explicit_logs_outside_generated_directories) ... Building docker image 'matsim-network-generator' (first run only, this can take a few minutes)...
+Running network generator for city='test' with isolated scratch...
+Building docker image 'matsim-demand-generator' (first run only, this can take a few minutes)...
+Running demand generator (sample=0.1%, numPlans=500)... this can take a while.
+Building docker image 'matsim-baseline' (first run only - Maven has to download MATSim + contribs, can take a while)...
+Running MATSim simulation (iterations 0–2)... this can take a while.
+Building docker image 'matsim-demand-generator' (first run only, this can take a few minutes)...
+Deriving SA1 subset for region 'region.geojson' (buffer 500m)...
+ok
+test_cached_only_stale_image_fails_without_build (test_runner_configuration.RunnerConfigurationTests.test_cached_only_stale_image_fails_without_build) ... ok
+test_demand_seed_is_passed_to_container_environment (test_runner_configuration.RunnerConfigurationTests.test_demand_seed_is_passed_to_container_environment) ... ok
+test_docker_source_fingerprint_changes_with_source (test_runner_configuration.RunnerConfigurationTests.test_docker_source_fingerprint_changes_with_source) ... ok
+test_network_config_can_pin_exact_osm_extract (test_runner_configuration.RunnerConfigurationTests.test_network_config_can_pin_exact_osm_extract) ... ok
+test_network_container_uses_writable_gdal_temp_directory (test_runner_configuration.RunnerConfigurationTests.test_network_container_uses_writable_gdal_temp_directory) ... Running network generator for city='test' with isolated scratch...
+ok
+test_network_scratch_pbf_copy_and_commands_are_isolated (test_runner_configuration.RunnerConfigurationTests.test_network_scratch_pbf_copy_and_commands_are_isolated) ... Running network generator for city='city' with isolated scratch...
+Running network generator for city='city' with isolated scratch...
+ok
+test_zero_exit_without_required_nonempty_artifacts_is_failure (test_runner_configuration.RunnerConfigurationTests.test_zero_exit_without_required_nonempty_artifacts_is_failure) ... Running network generator for city='city' with isolated scratch...
+Running network generator for city='city' with isolated scratch...
+Running network generator for city='city' with isolated scratch...
+Running network generator for city='city' with isolated scratch...
+ok
+test_failed_record_prevents_partial_run_being_listed_as_completed (test_runs.RunCatalogueTests.test_failed_record_prevents_partial_run_being_listed_as_completed) ... ok
+test_lists_and_loads_completed_run (test_runs.RunCatalogueTests.test_lists_and_loads_completed_run) ... ok
+test_rejects_path_traversal (test_runs.RunCatalogueTests.test_rejects_path_traversal) ... ok
+test_demand_first_once_independent_buffers_and_unchanged_plans (test_scenario_activity_domain.ScenarioActivityDomainTests.test_demand_first_once_independent_buffers_and_unchanged_plans) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+Activity-domain precondition passed; transport/simulation validity is not established.
+ok
+test_docker_unavailable_has_actionable_early_error (test_scenario_activity_domain.ScenarioActivityDomainTests.test_docker_unavailable_has_actionable_early_error) ... ok
+test_existing_outputs_are_not_reused (test_scenario_activity_domain.ScenarioActivityDomainTests.test_existing_outputs_are_not_reused) ... ok
+test_legacy_order_and_buffer_are_unchanged (test_scenario_activity_domain.ScenarioActivityDomainTests.test_legacy_order_and_buffer_are_unchanged) ... === Step 1/3: building network ===
+
+=== Step 2/3: deriving matching SA1 subset ===
+
+=== Step 3/3: building demand for the same SA1 subset ===
+
+=== Cross-checking coverage ===
+100.0% of demand activity locations fall inside network's coverage area
+ok
+test_missing_budget_cache_unknown_strategy_fail_before_external_work (test_scenario_activity_domain.ScenarioActivityDomainTests.test_missing_budget_cache_unknown_strategy_fail_before_external_work) ... ok
+test_network_failure_keeps_prepared_evidence_and_does_not_fallback (test_scenario_activity_domain.ScenarioActivityDomainTests.test_network_failure_keeps_prepared_evidence_and_does_not_fallback) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+ok
+test_nonfinite_demand_prevents_network_generation (test_scenario_activity_domain.ScenarioActivityDomainTests.test_nonfinite_demand_prevents_network_generation) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+ok
+test_post_cleaning_failure_is_fatal_with_saved_audit (test_scenario_activity_domain.ScenarioActivityDomainTests.test_post_cleaning_failure_is_fatal_with_saved_audit) ... === Step 1/4: selecting whole SA1s from the original demand region ===
+=== Step 2/4: generating and freezing demand ===
+=== Step 3/4: generating the network around unchanged demand ===
+=== Step 4/4: post-cleaning activity-domain gate (required 100%) ===
+ok
+test_stale_or_missing_network_image_stops_before_any_expensive_stage (test_scenario_activity_domain.ScenarioActivityDomainTests.test_stale_or_missing_network_image_stops_before_any_expensive_stage) ... ok
+test_healthy_instance_is_reused_without_starting_or_stopping_anything (test_server.ServerLauncherTests.test_healthy_instance_is_reused_without_starting_or_stopping_anything) ... ok
+test_invalid_health_response_is_not_our_server (test_server.ServerLauncherTests.test_invalid_health_response_is_not_our_server) ... ok
+test_spawn_actually_detaches_and_redirects_stdio (test_server.ServerLauncherTests.test_spawn_actually_detaches_and_redirects_stdio) ... ok
+test_startup_failure_does_not_claim_success (test_server.ServerLauncherTests.test_startup_failure_does_not_claim_success) ... ok
+test_timeout_cleans_up_only_child_it_started (test_server.ServerLauncherTests.test_timeout_cleans_up_only_child_it_started) ... ok
+test_waits_for_own_pid_not_another_server (test_server.ServerLauncherTests.test_waits_for_own_pid_not_another_server) ... ok
+test_congestion_ramp_has_distinct_endpoints (test_skyline.SkylineStyleTests.test_congestion_ramp_has_distinct_endpoints) ... ok
+test_explicit_building_category_is_preserved (test_skyline.SkylineStyleTests.test_explicit_building_category_is_preserved) ... ok
+test_uncategorised_tower_gets_office_visual_style (test_skyline.SkylineStyleTests.test_uncategorised_tower_gets_office_visual_style) ... ok
+test_fixed_ratio_anchors_match_the_display_legend (test_traffic_scale.TrafficScaleTests.test_fixed_ratio_anchors_match_the_display_legend) ... ok
+test_freeflow_floor_and_gridlock_ceiling_do_not_stretch_to_sample_ranks (test_traffic_scale.TrafficScaleTests.test_freeflow_floor_and_gridlock_ceiling_do_not_stretch_to_sample_ranks) ... ok
+test_intermediate_ratios_interpolate_between_fixed_anchors (test_traffic_scale.TrafficScaleTests.test_intermediate_ratios_interpolate_between_fixed_anchors) ... ok
+test_ratio_anchors_produce_distinct_normalized_colors (test_traffic_scale.TrafficScaleTests.test_ratio_anchors_produce_distinct_normalized_colors) ... ok
+
+----------------------------------------------------------------------
+Ran 295 tests in 1.715s
+
+OK

@@ -1,0 +1,437 @@
+{
+  "release": "2026.10-p0",
+  "case_id": "cbd_expanded1037_detour_10it_review_r02",
+  "exported_at_utc": "2026-10-18T12:27:45.915799+00:00",
+  "scope": "Recomputed from nine saved native trip tables; no new simulation or real-traffic calibration",
+  "metric": "Arithmetic mean of valid car-trip durations in seconds; each seed weighted equally in the descriptive mean difference",
+  "measurement_policy": "Finite nonnegative measurements only; real zero valid; missing/invalid excluded separately per metric; all missing means null",
+  "controls_verification": {
+    "scope": "completed_stage_metadata_and_control_source_hashes",
+    "verified_stage_count": 9,
+    "expected_stage_count": 9,
+    "not_checked": [
+      "normalized_config_comparability",
+      "trip_event_data_quality",
+      "aggregate_metric_recomputation",
+      "calibration"
+    ]
+  },
+  "runs": [
+    {
+      "seed": 4711,
+      "scenario": "baseline",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_baseline_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 235.703426124197,
+      "car_mean_distance_m": 2742.351177730193,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "225d4271ced272982d2239ce24459ecf16a38b38630dafd0cb5b506ca0bf083c",
+        "output_persons.csv.gz": "ee1ae9ffc0ea39b70e1e61985243d00a4dd27791d9cbcad7098ed10ae8b66bc3",
+        "scorestats.txt": "1b75ce99e4e35c14fa505563339a4f6eb0d102a1535f0e7e4496cbe96ff5a32c"
+      }
+    },
+    {
+      "seed": 4711,
+      "scenario": "closure",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_closure_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 243.40899357601714,
+      "car_mean_distance_m": 2859.874732334047,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "d8f0991ed308173175827b407827859c9d85237e5ba6172a77dba328346a4ded",
+        "output_persons.csv.gz": "5d071ee11f7128b8cbeac0368a6506cc264770be77aae6320eaadfc076ebac5d",
+        "scorestats.txt": "f7a535dbf93830be4ae2757f183a752735c237793fbe76e24146269d2a46ae28"
+      }
+    },
+    {
+      "seed": 4711,
+      "scenario": "alternative",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4711_alternative_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 243.52569593147751,
+      "car_mean_distance_m": 2860.4207708779445,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "e744d46ef4699662e06861b699e958479b43be3dc7b81b692211278a047d4f04",
+        "output_persons.csv.gz": "e94a13efabcd2c4844e2b4afdc76805b46d41b70f42b612b9c5bb6511c1bebf9",
+        "scorestats.txt": "62a9dffd56f4c64055bc7f2e6050f3852aef8bce12a5cab145afd7ef5bb51968"
+      }
+    },
+    {
+      "seed": 4712,
+      "scenario": "baseline",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_baseline_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 235.69700214132763,
+      "car_mean_distance_m": 2741.319057815846,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "b469c6afa89177c7ee2ff2698cf85c5f7ffdbe84a46ef5978bfb4c913e3892bd",
+        "output_persons.csv.gz": "f6fb8106da6ab22792d8d27b122960b35994894518a40f020c25668fa8ecd22d",
+        "scorestats.txt": "b9b0ca95e49cadf7a6f1719ceed872b34c6911f62fc9b738714362c79263304c"
+      }
+    },
+    {
+      "seed": 4712,
+      "scenario": "closure",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_closure_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 243.22055674518202,
+      "car_mean_distance_m": 2855.2858672376874,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "a331facae33044e3cc240d854fdbf28cea21a74207265559a92fac6ebea1c0c3",
+        "output_persons.csv.gz": "e7bde906d3b1b56865c30383b0b92bc7d9a735ca879720253e0c96a433477e9f",
+        "scorestats.txt": "2eb59ea7b40ad5d2d8c204ffe86b5eada4ae083eee1929f2ea54fd4968b5fbe3"
+      }
+    },
+    {
+      "seed": 4712,
+      "scenario": "alternative",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4712_alternative_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 243.31798715203425,
+      "car_mean_distance_m": 2856.204496788009,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "de187454c128c75a04681163879a6f483964be3f1a0aa5a1fcaf70919d7debf4",
+        "output_persons.csv.gz": "b0663838b2e2dfa5f91d0d0afa7a910ced8bf220a9f9dcd9818a6d1f819577c6",
+        "scorestats.txt": "a597b394d05d5894193f8a503d4019fa9903cf17bea4a4275ae9c6889c38d51b"
+      }
+    },
+    {
+      "seed": 4713,
+      "scenario": "baseline",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_baseline_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 235.8779443254818,
+      "car_mean_distance_m": 2742.6777301927195,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "e6d5de25641ad02d91adda344f61dcb0a897166aab9b82178e2fed9bc89bf44d",
+        "output_persons.csv.gz": "ea5afff37fb01509308c09a335ac4e0599b3dc84cd07c157964f2cfe05caa765",
+        "scorestats.txt": "1a6ee8232e42ef530afddf5d83b5bb1bf3b1ea902d93f1bc01a7fae11c269616"
+      }
+    },
+    {
+      "seed": 4713,
+      "scenario": "closure",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_closure_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 243.23875802997858,
+      "car_mean_distance_m": 2855.5578158458243,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "db30e26c977abea06b7169f8f3c81d047ce75bb401018606fca5f3fe5a27fcf8",
+        "output_persons.csv.gz": "b16973dfbe92e666a699cd88da25849f8b1968975d9b9da08e773880626035ab",
+        "scorestats.txt": "dbb56f67d95327432707c0bc9b35c676a1f793eb7ff3a260e365ca2fadb4426a"
+      }
+    },
+    {
+      "seed": 4713,
+      "scenario": "alternative",
+      "run": "cbd_expanded1037_detour_10it_review_r02_s4713_alternative_a01_sim",
+      "persons": 1037,
+      "trips": 3623,
+      "iterations": 10,
+      "car_trips": 934,
+      "car_mean_seconds": 243.31798715203425,
+      "car_mean_distance_m": 2856.3062098501073,
+      "car_time_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "car_distance_quality": {
+        "valid": 934,
+        "missing": 0,
+        "invalid": 0
+      },
+      "all_trip_quality": {
+        "time": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "distance": {
+          "valid": 3623,
+          "missing": 0,
+          "invalid": 0
+        },
+        "mode": {
+          "unknown": 0,
+          "fallback": 3623
+        }
+      },
+      "artifact_sha256": {
+        "output_trips.csv.gz": "cfe8416c8b86506d45085c1f3bdfaf29f887d7f262be343bad3165820fd675cb",
+        "output_persons.csv.gz": "2555b087250bfa932e763006d045e66d0f48b46e9cd53495aca07367d6f06688",
+        "scorestats.txt": "b5b8c5d26fd5f8fbce1a67b3541ca58e7570e21806d09d3a400b948735cc200c"
+      }
+    }
+  ],
+  "differences": [
+    {
+      "seed": 4711,
+      "closure_minus_baseline_s": 7.705567451820144,
+      "alternative_minus_baseline_s": 7.82226980728052,
+      "alternative_minus_closure_s": 0.11670235546037588
+    },
+    {
+      "seed": 4712,
+      "closure_minus_baseline_s": 7.523554603854393,
+      "alternative_minus_baseline_s": 7.620985010706619,
+      "alternative_minus_closure_s": 0.09743040685222581
+    },
+    {
+      "seed": 4713,
+      "closure_minus_baseline_s": 7.360813704496792,
+      "alternative_minus_baseline_s": 7.440042826552457,
+      "alternative_minus_closure_s": 0.0792291220556649
+    }
+  ],
+  "descriptive_mean_differences": {
+    "closure_minus_baseline_s": 7.529978586723776,
+    "alternative_minus_baseline_s": 7.627765881513199,
+    "alternative_minus_closure_s": 0.0977872947894222
+  },
+  "limitations": [
+    "Synthetic agents; not observed individual travel",
+    "No observed-traffic calibration or predictive accuracy claim",
+    "Teleported public transport, not GTFS vehicles/timetables",
+    "Three seeds are descriptive, not confidence intervals or convergence evidence",
+    "The same people recur across seeds; do not treat them as independent samples",
+    "Bounding-box coverage is not connectivity or transport validity"
+  ],
+  "analysis_source_sha256": {
+    "wrapper/analyze.py": "d1ad0c5a5bf458999a2ebf563ff0df12a6037b6b62065f3f6966ca5f5ec6e6fc",
+    "wrapper/measurements.py": "20970c8cacb52c8d0082263c13ac829cda47176ee0c97f3764cdd16646f0c92c",
+    "scripts/export_portfolio_case.py": "3503dba6d80c58bd4bfcde30edb9ef8db40c1647cfc4c4a4de20801d15112e7c"
+  }
+}

@@ -1,0 +1,4 @@
+case_id,seed,scenario_key,car_trips,observed_detour_trips,observed_detour_pct,added_links,used_added_links,entered_link_traversals,complete_link_traversals,weighted_link_travel_s,weighted_link_delay_s
+cbd_expanded1037_detour_10it_review_r02,4711,alternative,934,6,0.6423982869379015,32,13,18,17,3.764705882352941,0.4606793367727517
+cbd_expanded1037_detour_10it_review_r02,4712,alternative,934,6,0.6423982869379015,32,13,18,17,3.764705882352941,0.4606793367727517
+cbd_expanded1037_detour_10it_review_r02,4713,alternative,934,6,0.6423982869379015,32,13,18,17,3.764705882352941,0.4606793367727517

@@ -5,8 +5,8 @@ geometry, colored by actual congestion like a navigation app - green through
 yellow/red/purple/black), with real landmarks (parks/libraries/tram lines)
 and the ground itself following Melbourne's real terrain
 (data/dem/fabdem_melbourne.tif, a bare-earth elevation model - see note
-below on why not the more obvious Copernicus DEM). Pure stdlib plus rasterio
-for the elevation lookup - the actual 3D rendering happens client-side via
+below on why not the more obvious Copernicus DEM). Uses rasterio for elevation
+and projection, Shapely for polygon validation/clipping; rendering happens via
 three.js, see wrapper/static/index.html.
 
 Buildings are real OSM footprints (extruded to their real OSM height/levels,
@@ -35,7 +35,9 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import rasterio
-from rasterio.warp import transform as warp_transform
+from rasterio.warp import transform as warp_transform, transform_bounds
+from wrapper.landmark_geometry import project_clip_areas
+from wrapper.building_geometry import prepare_buildings
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "output"
@@ -48,7 +50,6 @@ ROAD_MIN_WIDTH = 1.8
 ROAD_MAX_WIDTH = 7.2
 TERRAIN_GRID_SIZE = 44  # vertices per side of the ground mesh
 VERTICAL_EXAGGERATION = 3.5  # real Melbourne relief is gentle; needs exaggeration to read in a compact scene
-MAX_BUILDINGS = 3000  # safety cap so a very dense area can't overwhelm the browser
 LANDMARK_LABEL_MIN_HEIGHT_M = 20.0  # only label buildings tall/significant enough to actually serve as a wayfinding landmark
 MAX_LANDMARK_LABELS = 10  # game-style map labels: recognizable, never a wall of text
 WAYFINDING_LANDMARK_TERMS = (
@@ -140,6 +141,15 @@ def _congestion_color(severity: float) -> tuple[float, float, float]:
             t = (severity - s0) / (s1 - s0) if s1 > s0 else 0.0
             return tuple(round(c0[i] + (c1[i] - c0[i]) * t, 3) for i in range(3))
     return COLOR_STOPS[-1][1]
+
+
+def _absolute_severity(ratio: float) -> float:
+    """Fixed display scale, not a traffic-engineering service-level standard."""
+    stops = [(1, 0), (1.2, .35), (1.5, .55), (2, .72), (3, .88), (5, 1)]
+    for (a, sa), (b, sb) in zip(stops, stops[1:]):
+        if ratio <= b:
+            return sa + max(0, (ratio-a)/(b-a)) * (sb-sa)
+    return 1.0
 
 
 def _parse_events(sim_dir: Path) -> tuple[dict[str, int], dict[str, list[float]]]:
@@ -250,8 +260,14 @@ def _network_data(sim_dir: Path) -> tuple[dict[str, tuple[float, float]], dict[s
                     "lanes": float(elem.get("permlanes", 1) or 1),
                     "oneway": elem.get("oneway", "1") == "1",
                     "modes": elem.get("modes", ""),
+                    "height_from_m": float(elem.findtext("attributes/attribute[@name='ifline:height_from']", '0')),
+                    "height_to_m": float(elem.findtext("attributes/attribute[@name='ifline:height_to']", '0')),
+                    "physical_width_m": float(elem.findtext("attributes/attribute[@name='ifline:width_m']", '0')),
                 }
-            elem.clear()
+            # Custom link attributes must survive until their enclosing link
+            # is read. Clearing every end event erased elevated-road metadata.
+            if elem.tag in ('node','link'):
+                elem.clear()
 
     links = {}
     for link_id, attrs in raw_links.items():
@@ -269,17 +285,147 @@ def _sample_elevations(xs_native: list[float], ys_native: list[float]) -> list[f
         return [float(v[0]) for v in src.sample(zip(lons, lats))]
 
 
+def landmark_cache_path(region_key: str, directory: Path | None = None) -> Path:
+    directory = directory if directory is not None else LANDMARKS_DIR
+    expanded = directory / "expanded" / f"{region_key}.json"
+    if expanded.is_file():
+        return expanded
+    candidate = directory / "v2" / f"{region_key}.json"
+    return candidate if candidate.is_file() else directory / f"{region_key}.json"
+
+
 def _load_landmarks(region_key: str | None) -> dict | None:
     """Real OSM landmarks (parks/libraries/tram lines) for a region, pre-extracted
     once from the cached Victoria OSM PBF via scripts/extract_landmarks.py and
-    cached to data/landmarks/<region_key>.json - NOT re-scanned on every pipeline
+    cached to data/landmarks/expanded/<region_key>.json when available, then v2
+    or legacy fallback - NOT re-scanned on every pipeline
     run (building its node-location index can take many minutes)."""
     if not region_key:
         return None
-    path = LANDMARKS_DIR / f"{region_key}.json"
+    path = landmark_cache_path(region_key)
     if not path.exists():
         return None
     return json.loads(path.read_text())
+
+
+def scene_native_bounds(coordinate_transform, terrain):
+    """Authoritative displayed extent, including the terrain padding, in native CRS."""
+    cx, cy = coordinate_transform['center_x'], coordinate_transform['center_y']
+    scale = coordinate_transform['scene_units_per_metre']
+    if not all(math.isfinite(v) for v in (cx, cy, scale)) or scale <= 0:
+        raise ValueError('Invalid scene coordinate transform')
+    bounds = (cx + terrain['min_x']/scale, cy + terrain['min_z']/scale,
+              cx + terrain['max_x']/scale, cy + terrain['max_z']/scale)
+    if not all(math.isfinite(v) for v in bounds) or bounds[0] >= bounds[2] or bounds[1] >= bounds[3]:
+        raise ValueError('Invalid scene terrain extent')
+    return bounds
+
+
+def scene_geographic_bounds(coordinate_transform, terrain):
+    """Return W/E/S/N, the cache/extractor convention (not GIS x0/y0/x1/y1)."""
+    west, south, east, north = transform_bounds(
+        coordinate_transform['network_crs'], 'EPSG:4326',
+        *scene_native_bounds(coordinate_transform, terrain), densify_pts=21)
+    return [west, east, south, north]
+
+
+def landmark_coverage(raw, coordinate_transform, terrain):
+    """Source *extent* coverage only; complete does not mean every building is mapped."""
+    required = scene_geographic_bounds(coordinate_transform, terrain)
+    metadata = raw.get('metadata')
+    bounds = metadata.get('bounds') if isinstance(metadata, dict) else None
+    valid = (isinstance(bounds, (list, tuple)) and len(bounds) == 4
+             and all(isinstance(v, (int, float)) and math.isfinite(v) for v in bounds)
+             and -180 <= bounds[0] < bounds[1] <= 180
+             and -90 <= bounds[2] < bounds[3] <= 90)
+    complete = valid and (bounds[0] <= required[0]+1e-9 and bounds[1] >= required[1]-1e-9
+                         and bounds[2] <= required[2]+1e-9 and bounds[3] >= required[3]-1e-9)
+    return {'status': 'complete' if complete else ('partial' if valid else 'unknown'),
+            'source_bounds_wesn': bounds if valid else None,
+            'required_bounds_wesn': required,
+            'meaning': 'source extraction extent, not completeness or accuracy of OSM buildings'}
+
+
+def _terrain_height(terrain, x, z):
+    """Height on the exported terrain triangles (not a separate elevation)."""
+    nx, nz = terrain["nx"], terrain["nz"]
+    fx = max(0, min(nx - 1, (x - terrain["min_x"]) / (terrain["max_x"] - terrain["min_x"]) * (nx - 1)))
+    fz = max(0, min(nz - 1, (z - terrain["min_z"]) / (terrain["max_z"] - terrain["min_z"]) * (nz - 1)))
+    ix, iz = min(nx - 2, int(fx)), min(nz - 2, int(fz))
+    tx, tz = fx - ix, fz - iz
+    hs = terrain["heights"]
+    a, b, c, d = hs[iz*nx+ix], hs[iz*nx+ix+1], hs[(iz+1)*nx+ix], hs[(iz+1)*nx+ix+1]
+    return (a*(1-tx-tz)+b*tx+c*tz) if tx+tz <= 1 else (b*(1-tz)+c*(1-tx)+d*(tx+tz-1))
+
+
+def scene_area_layers(raw, coordinate_transform, terrain):
+    """Rebuild only visual polygons. Does not read/modify MATSim outputs.
+
+    Also used by the explicit existing-replay refresh command, so old runs
+    can get correct land polygons without recomputing any traffic metric.
+    """
+    raw = raw or {}
+    cx, cy = coordinate_transform["center_x"], coordinate_transform["center_y"]
+    scale = coordinate_transform["scene_units_per_metre"]
+    bounds = scene_native_bounds(coordinate_transform, terrain)
+    def convert(ring):
+        # Preserve narrow rings/holes; the old 0.1-unit rounding could merge
+        # neighbouring vertices and create self-intersections after repair.
+        return [[round((x-cx)*scale, 5), round((y-cy)*scale, 5)] for x, y in ring.coords]
+    layers, diagnostics = {}, {'coverage': landmark_coverage(raw, coordinate_transform, terrain)}
+    for category, target in (("parks", "parks"), ("commercial", "commercial_zones"),
+                             ("water", "water"), ("buildings", "buildings")):
+        parts, stats = project_clip_areas(raw.get(category, []), bounds, "EPSG:4326",
+                                          coordinate_transform["network_crs"])
+        # Keep every valid footprint. A height-ranked global cap erased whole
+        # low-rise neighbourhoods; renderer batching, not missing data, bounds draws.
+        stats["omitted_by_limit"] = 0
+        out = []
+        for source, polygon, clipped in parts:
+            point = polygon.representative_point()
+            sx, sz = (point.x-cx)*scale, (point.y-cy)*scale
+            item = {"points": convert(polygon.exterior),
+                    "holes": [convert(ring) for ring in polygon.interiors],
+                    "name": source.get("name", ""), "osm_id": source.get("osm_id"),
+                    "clipped": clipped, "y": round(_terrain_height(terrain, sx, sz), 3)}
+            if category == "buildings":
+                kind, color = _visual_building_style(source)
+                height = float(source.get("height", 9))
+                if not math.isfinite(height) or height <= 0:
+                    height = 9
+                item.update(height=round(height*scale, 2), height_m=round(height, 1),
+                            kind=kind, color=color, roof=source.get("roof", "flat"),
+                            material=source.get("material", ""), heritage=bool(source.get("heritage")))
+            out.append(item)
+        layers[target] = out
+        diagnostics[category] = stats
+    return layers, diagnostics
+
+
+def _area_labels(buildings):
+    candidates = []
+    for b in buildings:
+        name = b["name"]
+        normalized = " ".join(name.lower().split())
+        important = bool(name and "car park" not in normalized and
+                         any(term in normalized for term in WAYFINDING_LANDMARK_TERMS))
+        if not name or (b["height_m"] < LANDMARK_LABEL_MIN_HEIGHT_M and not important):
+            continue
+        family = next((term for term in ("melbourne central", "eureka tower", "rialto",
+            "101 collins", "flinders street station", "state library", "queen victoria market", "parliament")
+            if term in normalized), normalized)
+        candidates.append((important, b["height_m"], family, b))
+    candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+    labels, seen = [], set()
+    for _, _, family, b in candidates:
+        if family in seen:
+            continue
+        seen.add(family)
+        labels.append({"name": b["name"], "x": statistics.mean(p[0] for p in b["points"]),
+                       "z": statistics.mean(p[1] for p in b["points"]), "y": b["y"] + b["height"]})
+        if len(labels) >= MAX_LANDMARK_LABELS:
+            break
+    return labels
 
 
 def render_skyline_scene(sim_output_subdir: str, region_key: str | None = None) -> Path:
@@ -328,20 +474,8 @@ def render_skyline_scene(sim_output_subdir: str, region_key: str | None = None) 
     # actually carry through-traffic (most links in a small demo carry none
     # at all - that's real, not a bug: see below).
     #
-    # Severity is a *rank-based* stratification: sort all links that carry
-    # any traffic by their ratio and spread them evenly across the full 0-1
-    # severity range by rank, not by raw value. A min-max *value* stretch
-    # (previous version) preserves the shape of the underlying distribution -
-    # when most ratios cluster tightly near the low end with one or two far
-    # outliers (typical for a lightly-loaded demo), that leaves nearly every
-    # link crammed near severity 0 and only a literal handful of links ever
-    # reaching yellow/red/purple, which is too faint/rare to actually see on
-    # the map. Rank-based spreading guarantees every color band gets a
-    # visible, meaningful share of roads regardless of the underlying value
-    # distribution - this is explicitly a *relative* "busier than other
-    # streets in this same run" indicator, not an absolute engineering
-    # severity threshold (documented here since that's a real, deliberate
-    # tradeoff, not an oversight).
+    # Fixed values across runs. A lightly loaded network may correctly have
+    # no red roads; never stretch a rank to manufacture congestion.
     ratios: dict[str, float] = {}
     for link_id, times in travel_times.items():
         link = links.get(link_id)
@@ -352,12 +486,7 @@ def render_skyline_scene(sim_output_subdir: str, region_key: str | None = None) 
             continue
         ratios[link_id] = max(1.0, statistics.mean(times) / freeflow_time)
 
-    severity_by_link: dict[str, float] = {}
-    if ratios:
-        ranked = sorted(ratios.items(), key=lambda kv: kv[1])
-        n = len(ranked)
-        for i, (link_id, _) in enumerate(ranked):
-            severity_by_link[link_id] = i / (n - 1) if n > 1 else 0.0
+    severity_by_link = {key: _absolute_severity(value) for key, value in ratios.items()}
 
     def severity_of(link_id: str) -> float | None:
         return severity_by_link.get(link_id) if link_id in ratios else None
@@ -377,18 +506,29 @@ def render_skyline_scene(sim_output_subdir: str, region_key: str | None = None) 
         capacity_fraction = min(1.0, link["capacity"] / 6000.0)
         hierarchy = min(1.0, lane_fraction * 0.78 + capacity_fraction * 0.22)
         width = ROAD_MIN_WIDTH + hierarchy * (ROAD_MAX_WIDTH - ROAD_MIN_WIDTH)
+        modes = sorted(
+            mode.strip() for mode in str(link.get("modes", "")).split(",")
+            if mode.strip()
+        )
         roads.append({
+            "link_id": link_id,
             "x1": round(sx1, 1), "z1": round(sz1, 1),
             "x2": round(sx2, 1), "z2": round(sz2, 1),
             "y1": elev_to_scene_y(node_elev.get(link["from"], min_elev)),
             "y2": elev_to_scene_y(node_elev.get(link["to"], min_elev)),
             "width": round(width, 2),
+            "height_from_m": link.get('height_from_m',0),
+            "height_to_m": link.get('height_to_m',0),
+            "physical_width_m": link.get('physical_width_m',0),
             "color": [round(c, 3) for c in color],
             "glow": round(glow, 2),
             "severity": None if sev is None else round(sev, 3),
+            "travel_time_ratio": ratios.get(link_id),
             "volume": vol,
             "lanes": round(link["lanes"], 1),
             "oneway": link["oneway"],
+            "modes": modes,
+            "car_editable": "car" in modes,
         })
 
     # --- real car trajectories, for playback-driven animation ------------
@@ -415,8 +555,8 @@ def render_skyline_scene(sim_output_subdir: str, region_key: str | None = None) 
                 y1 = elev_to_scene_y(node_elev.get(link["from"], min_elev))
                 y2 = elev_to_scene_y(node_elev.get(link["to"], min_elev))
                 if not keyframes:
-                    keyframes.append([round(t0, 1), round(sx1, 1), round(y1, 2), round(sz1, 1)])
-                keyframes.append([round(t1, 1), round(sx2, 1), round(y2, 2), round(sz2, 1)])
+                    keyframes.append([round(t0, 1), round(sx1, 1), round(y1, 2), round(sz1, 1), link.get('height_from_m',0)])
+                keyframes.append([round(t1, 1), round(sx2, 1), round(y2, 2), round(sz2, 1), link.get('height_to_m',0)])
             if len(keyframes) >= 2:
                 trips_out.append(keyframes)
                 all_times.append(keyframes[0][0])
@@ -436,240 +576,56 @@ def render_skyline_scene(sim_output_subdir: str, region_key: str | None = None) 
             peak_active_vehicles = active_vehicles
             sim_focus_time = event_time
 
-    # --- real landmarks (parks / libraries / tram lines) -----------------
-    # Genuine OSM features, not invented - see _load_landmarks()'s docstring
-    # for how/where this was extracted from.
-    landmarks_raw = _load_landmarks(region_key)
-    parks_out, libraries_out, tram_lines_out, commercial_out = [], [], [], []
-    if landmarks_raw:
-        lons_all, lats_all = [], []
-        for p in landmarks_raw.get("parks", []):
-            lons_all.extend(c[0] for c in p["coords"])
-            lats_all.extend(c[1] for c in p["coords"])
-        for lib in landmarks_raw.get("libraries", []):
-            lons_all.append(lib["lon"])
-            lats_all.append(lib["lat"])
-        for t in landmarks_raw.get("tram_ways", []):
-            lons_all.extend(c[0] for c in t["coords"])
-            lats_all.extend(c[1] for c in t["coords"])
-        for zone in landmarks_raw.get("commercial", []):
-            lons_all.extend(c[0] for c in zone["coords"])
-            lats_all.extend(c[1] for c in zone["coords"])
-
-        if lons_all:
-            native_xs, native_ys = warp_transform("EPSG:4326", NETWORK_CRS, lons_all, lats_all)
-            i = 0
-
-            def next_native(count: int) -> list[tuple[float, float]]:
-                nonlocal i
-                pts = list(zip(native_xs[i:i + count], native_ys[i:i + count]))
-                i += count
-                return pts
-
-            def in_bounds(x: float, y: float) -> bool:
-                return gx0 <= x <= gx1 and gy0 <= y <= gy1
-
-            # Two-pass: first work out which features are in-bounds and what
-            # points need elevation, then do exactly ONE _sample_elevations
-            # call for all of them (each call reopens+reads the DEM file -
-            # doing that per-feature for hundreds of tram vertices would be
-            # needlessly slow).
-            #
-            # Real Melbourne tram routes run for many km, far outside this
-            # small CBD scene - a way that just barely clips the region
-            # still has most of its points many km away. Including such a
-            # way *wholesale* (the original "any point in bounds" check)
-            # meant those far-away points got converted to scene coordinates
-            # and elevations using this scene's local scale/exaggeration,
-            # producing absurd stretched lines shooting far outside (and,
-            # since elevation differences also get scaled up, sometimes
-            # straight up into the sky). Fixed by requiring BOTH endpoints
-            # of each individual line *segment* to be in-bounds, not just
-            # "the way touches the box somewhere" - this naturally clips a
-            # long route down to just its portion actually inside the scene.
-            park_pts_list, lib_pts = [], []
-            for p in landmarks_raw.get("parks", []):
-                pts = next_native(len(p["coords"]))
-                if all(in_bounds(x, y) for x, y in pts):
-                    park_pts_list.append(pts)
-            for lib in landmarks_raw.get("libraries", []):
-                (pt,) = next_native(1)
-                if in_bounds(*pt):
-                    lib_pts.append((pt, lib.get("name") or "图书馆"))
-            tram_segments = []  # list of (x1,y1,x2,y2) native-CRS pairs, pre-clipped
-            for t in landmarks_raw.get("tram_ways", []):
-                pts = next_native(len(t["coords"]))
-                for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
-                    if in_bounds(x1, y1) and in_bounds(x2, y2):
-                        tram_segments.append((x1, y1, x2, y2))
-            commercial_pts_list = []
-            for zone in landmarks_raw.get("commercial", []):
-                pts = next_native(len(zone["coords"]))
-                if len(pts) >= 3 and all(in_bounds(x, y) for x, y in pts):
-                    commercial_pts_list.append(pts)
-
-            elev_query_xs, elev_query_ys = [], []
-            for pts in park_pts_list:
-                cx_p, cy_p = statistics.mean(x for x, _ in pts), statistics.mean(y for _, y in pts)
-                elev_query_xs.append(cx_p)
-                elev_query_ys.append(cy_p)
-            for pt, _ in lib_pts:
-                elev_query_xs.append(pt[0])
-                elev_query_ys.append(pt[1])
-            for x1, y1, x2, y2 in tram_segments:
-                elev_query_xs.extend([x1, x2])
-                elev_query_ys.extend([y1, y2])
-
-            all_elevs = _sample_elevations(elev_query_xs, elev_query_ys) if elev_query_xs else []
-            ei = 0
-
-            for pts in park_pts_list:
-                base_y = elev_to_scene_y(all_elevs[ei]); ei += 1
-                parks_out.append({
-                    "points": [[round(v, 1) for v in to_scene(x, y)] for x, y in pts],
-                    "y": base_y + 0.3,
-                })
-
-            for pt, name in lib_pts:
-                sx, sz = to_scene(*pt)
-                base_y = elev_to_scene_y(all_elevs[ei]); ei += 1
-                libraries_out.append({"x": round(sx, 1), "z": round(sz, 1), "y": base_y, "name": name})
-
-            for x1, y1, x2, y2 in tram_segments:
-                e1, e2 = all_elevs[ei], all_elevs[ei + 1]
-                ei += 2
-                sx1, sz1 = to_scene(x1, y1)
-                sx2, sz2 = to_scene(x2, y2)
-                tram_lines_out.append({
-                    "x1": round(sx1, 1), "z1": round(sz1, 1), "y1": elev_to_scene_y(e1),
-                    "x2": round(sx2, 1), "z2": round(sz2, 1), "y2": elev_to_scene_y(e2),
-                })
-
-            for pts in commercial_pts_list:
-                commercial_out.append({
-                    "points": [[round(v, 1) for v in to_scene(x, y)] for x, y in pts],
-                })
-
-    # --- real building footprints -----------------------------------------
-    # Genuine OSM building outlines/heights (scripts/extract_landmarks.py),
-    # not the abstract traffic-volume bar chart an earlier version used.
-    buildings_out = []
-    landmark_labels = []
-    if landmarks_raw:
-        building_entries = landmarks_raw.get("buildings", [])
-        if building_entries:
-            bd_lons, bd_lats = [], []
-            for b in building_entries:
-                bd_lons.extend(c[0] for c in b["coords"])
-                bd_lats.extend(c[1] for c in b["coords"])
-            bd_native_xs, bd_native_ys = warp_transform("EPSG:4326", NETWORK_CRS, bd_lons, bd_lats)
-            bd_i = 0
-            candidates = []  # (native_pts, height_m, color_hex, name, kind, roof, material, heritage)
-            for b in building_entries:
-                n = len(b["coords"])
-                pts = list(zip(bd_native_xs[bd_i:bd_i + n], bd_native_ys[bd_i:bd_i + n]))
-                bd_i += n
-                # Same "fully in-bounds" rule as parks: a footprint cropped at
-                # the scene edge would render as a broken partial shape.
-                if all(gx0 <= x <= gx1 and gy0 <= y <= gy1 for x, y in pts):
-                    visual_kind, visual_color = _visual_building_style(b)
-                    candidates.append((
-                        pts, b["height"], visual_color, b.get("name", ""),
-                        visual_kind, b.get("roof", "flat"),
-                        b.get("material", ""), bool(b.get("heritage", False)),
-                    ))
-
-            if len(candidates) > MAX_BUILDINGS:
-                # Prefer keeping the tallest buildings over the largest
-                # footprints - a real skyline reads by height, and ranking
-                # by footprint area instead would keep sprawling low sheds
-                # (e.g. market buildings) over genuine towers.
-                candidates.sort(key=lambda item: item[1], reverse=True)
-                candidates = candidates[:MAX_BUILDINGS]
-
-            bd_elev_xs, bd_elev_ys = [], []
-            for pts, *_ in candidates:
-                bd_elev_xs.append(statistics.mean(x for x, _ in pts))
-                bd_elev_ys.append(statistics.mean(y for _, y in pts))
-            bd_elevs = _sample_elevations(bd_elev_xs, bd_elev_ys) if bd_elev_xs else []
-
-            # Real named landmarks (e.g. "Melbourne Central office tower")
-            # tall enough to actually serve as a wayfinding reference - a
-            # user orbiting the scene has no other way to tell which
-            # building is which real place, so the tallest/most-recognizable
-            # ones get a floating name label client-side (capped so this
-            # doesn't turn into a name for every single building).
-            label_candidates = []  # (important, height_m, name, scene_x, scene_z, top_y)
-            for (pts, height_m, color, name, kind, roof, material, heritage), elev in zip(candidates, bd_elevs):
-                scene_pts = [[round(v, 1) for v in to_scene(x, y)] for x, y in pts]
-                height_scene = round(height_m * scale, 2)
-                base_y = elev_to_scene_y(elev)
-                buildings_out.append({
-                    "points": scene_pts,
-                    # Real height at the scene's own horizontal scale, no
-                    # vertical exaggeration - unlike terrain relief (too
-                    # gentle to read without it), building heights are
-                    # already visually significant at true proportions.
-                    "height": height_scene,
-                    # Real, unscaled meters - lets the frontend pick
-                    # architectural detail (tiered crowns, spires) by actual
-                    # real-world height rather than a scene-scale-dependent
-                    # threshold, which wouldn't be portable across regions
-                    # with different scale factors.
-                    "height_m": round(height_m, 1),
-                    "y": base_y,
-                    # Real OSM building:colour tag, RMIT's actual brand red for
-                    # RMIT-operated buildings, or a real-building-type-driven
-                    # tone (office/retail/residential/etc) - see
-                    # scripts/extract_landmarks.py's _building_color().
-                    "color": color,
-                    "kind": kind,
-                    "roof": roof,
-                    "material": material,
-                    "heritage": heritage,
-                    "name": name,
-                })
-                important = bool(
-                    name and "car park" not in name.lower()
-                    and any(term in name.lower() for term in WAYFINDING_LANDMARK_TERMS)
-                )
-                if name and (height_m >= LANDMARK_LABEL_MIN_HEIGHT_M or important):
-                    # NOTE: deliberately not named cx/cz - render_skyline_scene's
-                    # own `cx`/`cy` (the scene-center offset) are captured by
-                    # the `to_scene()` closure used everywhere in this
-                    # function; reassigning those names here silently corrupts
-                    # every to_scene() call for the rest of the function (this
-                    # was a real bug, caught by noticing building coordinates
-                    # after this point ranged up to ~470000 instead of the
-                    # expected -200..200 scene span).
-                    label_x = statistics.mean(p[0] for p in scene_pts)
-                    label_z = statistics.mean(p[1] for p in scene_pts)
-                    label_candidates.append((important, height_m, name, label_x, label_z, base_y + height_scene))
-
-            label_candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-            seen_names = set()
-            seen_families = set()
-            for _, _, name, lx, lz, top_y in label_candidates:
-                normalized = " ".join(name.lower().split())
-                family = normalized
-                for landmark_family in (
-                        "melbourne central", "eureka tower", "rialto",
-                        "101 collins", "flinders street station",
-                        "state library", "queen victoria market", "parliament"):
-                    if landmark_family in normalized:
-                        family = landmark_family
-                        break
-                if normalized in seen_names or family in seen_families or "car park" in normalized:
-                    continue
-                seen_names.add(normalized)
-                seen_families.add(family)
-                landmark_labels.append({
-                    "name": name, "x": lx, "z": lz, "y": round(top_y, 2),
-                })
-                if len(landmark_labels) >= MAX_LANDMARK_LABELS:
-                    break
+    # Polygon layers and line/point layers deliberately use separate paths.
+    # Polygon intersection preserves enclosing/cross-boundary areas and holes.
+    landmarks_raw = _load_landmarks(region_key) or {}
+    transform = {"network_crs": NETWORK_CRS, "center_x": cx, "center_y": cy,
+                 "scene_units_per_metre": scale}
+    terrain = {"nx": TERRAIN_GRID_SIZE, "nz": TERRAIN_GRID_SIZE,
+               "min_x": round(tsx0, 1), "max_x": round(tsx1, 1),
+               "min_z": round(tsz0, 1), "max_z": round(tsz1, 1),
+               "heights": terrain_heights}
+    area_layers, area_diagnostics = scene_area_layers(landmarks_raw, transform, terrain)
+    libraries_out, tram_lines_out = [], []
+    lib_entries = landmarks_raw.get("libraries", [])
+    tram_entries = landmarks_raw.get("tram_ways", [])
+    coordinates = [(lib["lon"], lib["lat"]) for lib in lib_entries]
+    coordinates += [tuple(c) for t in tram_entries for c in t["coords"]]
+    if coordinates:
+        native_xs, native_ys = warp_transform("EPSG:4326", NETWORK_CRS, *zip(*coordinates))
+        elevations = _sample_elevations(native_xs, native_ys)
+        def inside(i):
+            return gx0 <= native_xs[i] <= gx1 and gy0 <= native_ys[i] <= gy1
+        def point(i):
+            sx, sz = to_scene(native_xs[i], native_ys[i])
+            return round(sx, 1), round(sz, 1), elev_to_scene_y(elevations[i])
+        for i, lib in enumerate(lib_entries):
+            if inside(i):
+                sx, sz, sy = point(i)
+                libraries_out.append({"x": sx, "z": sz, "y": sy, "name": lib.get("name") or "图书馆"})
+        offset = len(lib_entries)
+        for t in tram_entries:
+            for i in range(offset, offset + len(t["coords"]) - 1):
+                if inside(i) and inside(i + 1):
+                    x1, z1, y1 = point(i)
+                    x2, z2, y2 = point(i + 1)
+                    tram_lines_out.append(dict(x1=x1, z1=z1, y1=y1, x2=x2, z2=z2, y2=y2))
+            offset += len(t["coords"])
+    parks_out = area_layers["parks"]
+    commercial_out = area_layers["commercial_zones"]
+    buildings_out, building_diagnostics = prepare_buildings(area_layers["buildings"])
+    landmark_labels = _area_labels(buildings_out)
 
     scene = {
+        "traffic_metric": {"version": 2, "type": "fixed_travel_time_ratio",
+                           "scope": "whole-run network traversals; car and bike combined",
+                           "ratio_stops": [1, 1.2, 1.5, 2, 3, 5]},
+        "coordinate_transform": {
+            "network_crs": NETWORK_CRS,
+            "center_x": cx,
+            "center_y": cy,
+            "scene_units_per_metre": scale,
+        },
         "roads": roads,
         "terrain": {
             "nx": TERRAIN_GRID_SIZE,
@@ -680,12 +636,17 @@ def render_skyline_scene(sim_output_subdir: str, region_key: str | None = None) 
         },
         "landmarks": {
             "parks": parks_out,
+            "water": area_layers["water"],
             "libraries": libraries_out,
             "tram_lines": tram_lines_out,
             "commercial_zones": commercial_out,
             "buildings": buildings_out,
             "labels": landmark_labels,
         },
+        "landmark_geometry_version": 2,
+        "landmark_diagnostics": area_diagnostics,
+        "building_geometry_version": 1,
+        "building_diagnostics": building_diagnostics,
         "vehicles": vehicles_out,
         "sim_time_range": [min(all_times), max(all_times)] if all_times else [0, 86400],
         "sim_focus_time": sim_focus_time,

@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Impact workbench regression — deterministic fetch, no API</title>
+<link rel="stylesheet" href="../../wrapper/static/impact.css">
+<style>
+  body { margin:24px auto; max-width:1150px; padding:0 16px; font:14px system-ui; color:#193442; }
+  #results { white-space:pre-wrap; padding:16px; background:#eef3f5; border:1px solid #c8d8e2; }
+  #results[data-status="passed"] { border-color:#267747; }
+  #results[data-status="failed"] { border-color:#a32626; color:#8e2020; }
+  /* Strip only fixture chrome in the child documents; production CSS is intact. */
+  body.layout-probe { margin:0; padding:0; max-width:none; }
+  body.layout-probe > :not(#impactWorkbench) { display:none; }
+</style>
+<h1>Impact workbench regression</h1>
+<p>Serve the repository root and open <code>tests/browser/impact_workbench.html</code>.
+  This page loads the real workbench script and CSS. All application fetch requests
+  are intercepted, downloads stay in memory, and no API or MATSim process is used.
+  Reload to rerun. The workbench below is the final deterministic test case.</p>
+<pre id="results" role="status" data-status="running">Running…</pre>
+<div id="impactWorkbench" hidden></div>
+<div id="skylineContainer">No 3D renderer or simulation is loaded by this fixture.</div>
+<script src="../../wrapper/static/impact-ui.js"></script>
+<script>
+(async () => {
+  'use strict';
+  const output = document.getElementById('results');
+  const host = document.getElementById('impactWorkbench');
+  const layoutProbe=window.parent!==window&&new URLSearchParams(location.search).get('impact-layout-probe')==='1';
+  if(layoutProbe)document.body.classList.add('layout-probe');
+  const report = window.impactWorkbenchFixture = {
+    status:'running', checks:[], scenarios:[], failures:[], requests:[], downloads:[], forbiddenRequests:[], layouts:[]
+  };
+  let finish;
+  window.impactWorkbenchFixtureDone = new Promise(resolve => { finish=resolve; });
+  const tickets=[], blobs=new Map(), capturedDownloads=[];
+  const pair={baseline_run:'fixture_baseline_sim',proposal_run:'fixture_proposal_sim',scenario_name:'Fixture proposal'};
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const response = (body,status=200) => ({ok:status>=200&&status<300,status,json:async()=>clone(body)});
+  const catalogue = {baselines:[
+    {id:pair.baseline_run,label:'Fixture baseline'},
+    {id:pair.proposal_run,label:'Fixture proposal'},
+    {id:'fixture_mismatched_sim',label:'Different configuration — must be rejected'}
+  ]};
+
+  // Never forward any request to native fetch. Abort is recorded but deliberately
+  // does not settle deferred requests: late-response protection must work even
+  // when a transport ignores cancellation or a response was already buffered.
+  window.fetch = (input,options={}) => {
+    const url=new URL(typeof input==='string'?input:input.url,'http://fixture.invalid');
+    const method=(options.method||'GET').toUpperCase();
+    const kind=url.pathname==='/ifline/impact'?'impact':
+      url.pathname.startsWith('/ifline/coverage/')?'coverage':
+      url.pathname==='/ifline/baselines'?'catalogue':'forbidden';
+    const record={kind,method,url:url.pathname+url.search,aborted:!!options.signal?.aborted,settled:false};
+    report.requests.push(record);
+    options.signal?.addEventListener('abort',()=>{record.aborted=true;},{once:true});
+    if(method!=='GET'||kind==='forbidden'){
+      report.forbiddenRequests.push(record);record.settled=true;
+      return Promise.reject(Error(`Fixture blocked unexpected request: ${method} ${url.pathname}`));
+    }
+    if(kind==='catalogue'){record.settled=true;return Promise.resolve(response(catalogue));}
+    return new Promise((resolve,reject)=>{
+      const ticket={kind,url,record,
+        reply(body,status=200){if(record.settled)throw Error('Fixture response released twice');record.settled=true;resolve(response(body,status));},
+        fail(message){if(record.settled)throw Error('Fixture request rejected twice');record.settled=true;reject(new TypeError(message));}
+      };
+      tickets.push(ticket);
+    });
+  };
+
+  // Exercise the production export handlers while preventing real downloads.
+  URL.createObjectURL = blob => {const url=`blob:impact-fixture/${blobs.size+1}`;blobs.set(url,blob);return url;};
+  URL.revokeObjectURL = () => {};
+  HTMLAnchorElement.prototype.click = function () {
+    const blob=blobs.get(this.href);
+    if(!this.download||!blob)throw Error('Fixture blocked unexpected anchor navigation');
+    capturedDownloads.push({name:this.download,blob});
+    report.downloads.push({name:this.download,type:blob.type,size:blob.size});
+  };
+
+  const stats=(count=2,travel=30,delay=20)=>({entered_count:count,complete_traversal_count:count,
+    mean_travel_time_s:count?travel:null,mean_delay_s:count?delay:null});
+  const geometry=(x1,y1,x2,y2)=>({from:`n${x1}_${y1}`,to:`n${x2}_${y2}`,x1,y1,x2,y2,
+    length_m:100,freespeed_m_s:10,freeflow_s:10});
+  const quality=count=>({rows:count,invalid_rows:0,invalid_key_rows:0,invalid_departure_rows:0,
+    invalid_travel_time_rows:0,invalid_mode_rows:0,mode_fallback_rows:0,duplicate_rows:0,duplicate_keys:0,unique_usable_key_count:count});
+  // Actual impact.py field names, deliberately nonzero and different on A/B.
+  // These are whole-source diagnostics, not the two-trip filtered cohort below.
+  const sourceQuality=()=>({
+    baseline:{...quality(31),invalid_rows:11,invalid_key_rows:2,invalid_departure_rows:4,
+      invalid_travel_time_rows:5,invalid_mode_rows:1,duplicate_rows:4,duplicate_keys:3,unique_usable_key_count:22},
+    proposal:{...quality(47),invalid_rows:13,invalid_key_rows:3,invalid_departure_rows:6,
+      invalid_travel_time_rows:7,invalid_mode_rows:2,duplicate_rows:7,duplicate_keys:5,unique_usable_key_count:32}
+  });
+  const completion=()=>Object.fromEntries(['car','bike','walk','pt','other'].map(mode=>[
+    mode,{departures:mode==='car'?2:0,arrivals:mode==='car'?2:0,stuck:0}
+  ]));
+  const source=()=>Object.fromEntries(['plans','config','network','input_network','events','trips','record'].map(name=>[
+    name,{path:`fixture/${name}`,size_bytes:10,modified_at:'2026-01-01T00:00:00Z',sha256:'a'.repeat(64)}
+  ]));
+
+  function payload(ticket,{empty=false,paired=2,mean=5,sourceDiagnostics=null,newEntries=2,extraNewEntries=null}={}) {
+    const p=ticket.url.searchParams,mode=p.get('mode')||'car';
+    const selected=(p.get('links')||'').split(',').filter(Boolean);
+    const available=mode!=='walk'&&mode!=='pt';
+    const unavailableColor=[.44,.43,.59];
+    function link(id,g,{newLink=false,unobserved=false,delta=5,entries=2}={}){
+      const observed=available&&!empty&&!unobserved;
+      const a=newLink||!available?null:stats(observed?2:0);
+      const b=!available?null:stats(observed?entries:0,30+delta,20+delta);
+      const comparable=!!(a&&b&&observed);
+      const state=newLink?'new':!available?'unavailable':comparable?'comparable':'no_data';
+      const bin=comparable?(Math.abs(delta)<1?'within_1s':'plus_1_to_plus_15'):'unavailable';
+      return {id,...g,baseline_geometry:newLink?null:g,proposal_geometry:g,
+        selected:selected.includes(id),state,comparable,unavailable_reason:comparable?null:'fixture unavailable observation',
+        baseline:a,proposal:b,
+        delta:{entered_count:comparable?0:null,complete_traversal_count:comparable?0:null,
+          mean_travel_time_s:comparable?delta:null,mean_delay_s:comparable?delta:null},
+        bin,color:bin==='unavailable'?unavailableColor:bin==='within_1s'?[.76,.78,.80]:[.98,.70,.48]};
+    }
+    // Intentionally put unavailable rows first in the source, to exercise ranking.
+    const links=[link('quiet',geometry(100,100,0,100),{unobserved:true}),
+      link('new',geometry(0,100,0,0),{newLink:true,entries:newEntries}),
+      link('neutral',geometry(100,0,100,100),{delta:0}),
+      link('road',geometry(0,0,100,0))];
+    if(extraNewEntries!==null)links.push(link('new-outside',geometry(0,0,-100,0),{newLink:true,entries:extraNewEntries}));
+    function summary(rows,label){
+      const comparable=rows.filter(row=>row.comparable);
+      const aggregate=side=>{
+        if(!available)return null;
+        const observed=rows.map(row=>row[side]).filter(Boolean);
+        const count=observed.reduce((sum,row)=>sum+row.complete_traversal_count,0);
+        return {entered_count:observed.reduce((sum,row)=>sum+row.entered_count,0),complete_traversal_count:count,
+          mean_travel_time_s:count?observed.reduce((sum,row)=>sum+(row.mean_travel_time_s||0)*row.complete_traversal_count,0)/count:null,
+          mean_delay_s:count?observed.reduce((sum,row)=>sum+(row.mean_delay_s||0)*row.complete_traversal_count,0)/count:null};
+      };
+      return {label,link_count:rows.length,comparable_link_count:comparable.length,states:{},bins:{},
+        baseline:aggregate('baseline'),proposal:aggregate('proposal'),
+        delta:{mean_link_travel_time_s:comparable.length?comparable.reduce((sum,row)=>sum+row.delta.mean_travel_time_s,0)/comparable.length:null,
+          mean_link_delay_s:comparable.length?comparable.reduce((sum,row)=>sum+row.delta.mean_delay_s,0)/comparable.length:null},
+        aggregation:'Fixture: traversal-weighted sides, equal-weight comparable link deltas'};
+    }
+    const count=empty?0:paired;
+    const sample=value=>({count,mean_s:count?value:null,p95_s:count?value:null});
+    return {schema_version:1,baseline_run:p.get('baseline'),proposal_run:p.get('proposal'),
+      filters:{start_s:Number(p.get('start_s')),end_s:Number(p.get('end_s')),mode,link_ids:selected},
+      comparability:{plans_sha256_equal:true,normalized_config_equal:true,normalized_config_sha256:'b'.repeat(64),
+        ignored_config_parameters:['network.inputNetworkFile','controler.outputDirectory'],random_seed:4711,first_iteration:0,last_iteration:2},
+      trips:{cohort_basis:'Fixture: baseline departure and main mode',selection_basis:'Either run complete traversal',
+        paired_count:count,cohort_count:count,faster_count:count&&mean<=-1?count:0,
+        slower_count:count&&mean>=1?count:0,within_1s_count:count&&Math.abs(mean)<1?count:0,
+        delta_s:{mean:count?mean:null,median:count?mean:null,p95:count?mean:null},
+        baseline:sample(100),proposal:sample(100+mean),
+        unmatched:{baseline_missing_in_proposal:0,proposal_only_in_own_window:0,proposal_duplicate_keys_in_cohort:0,invalid_pairs_in_cohort:0},
+        quality:sourceDiagnostics||{baseline:quality(count),proposal:quality(count)},mode_switch_count:0,mode_switches:[]},
+      network:{available,modes:available?(mode==='all'?['bike','car']:[mode]):[],
+        label:mode==='all'?'car + bike network traversals only':`${mode} network traversals`,
+        unavailable_reason:available?null:'walk/pt are teleported',coordinate_system:'EPSG:7899',
+        window_basis:'entered link time in [start_s,end_s)',delay_reference:'each run length/freespeed',links,
+        summary:summary(links.filter(row=>!selected.length||row.selected),selected.length?'selected links':'all links'),
+        outside_selection:summary(links.filter(row=>selected.length&&!row.selected),'outside selection'),quality:{baseline:{},proposal:{}}},
+      completion:{baseline:completion(),proposal:completion(),basis:'All-link leg events within the window; not trip completion rates'},
+      sources:{baseline:source(),proposal:source()},
+      legend:[{id:'within_1s',label:'|Δ| < 1 s',color:[.76,.78,.80]},
+        {id:'plus_1_to_plus_15',label:'+1 ≤ Δ < +15 s',color:[.98,.70,.48]},
+        {id:'unavailable',label:'Unavailable',color:unavailableColor}],
+      limitations:['Deterministic test fixtures only; not calibration or a forecast.',
+        'All-mode link measures include car and bike only; teleported modes have no link observations.']};
+  }
+  function coverage(fraction=.75){
+    const finite=fraction===null?0:4,inside=fraction===null?0:fraction*finite;
+    return {schema_version:1,activities:{total:finite,finite_coordinates:finite,inside_node_bbox:inside,
+      outside_node_bbox:finite-inside,inside_node_bbox_fraction_of_finite:fraction},
+      by_activity_type:finite?{Work:{outside_node_bbox:finite-inside}}:{},
+      method:{crs_verified:false,bbox:'inclusive_all_finite_network_nodes'},plans:{persons_audited:finite?2:0},limitations:[]};
+  }
+
+  function check(condition,message){if(!condition)throw Error(message);report.checks.push(message);}
+  function text(){return host.textContent;}
+  function control(selector){const node=host.querySelector(selector);if(!node)throw Error(`Missing control: ${selector}`);return node;}
+  function button(label,scope=host){const node=[...scope.querySelectorAll('button')].find(el=>el.textContent===label);if(!node)throw Error(`Missing button: ${label}`);return node;}
+  function field(label){const node=[...host.querySelectorAll('label')].find(el=>el.firstChild?.textContent.trim()===label);
+    if(!node)throw Error(`Missing field: ${label}`);return node.querySelector('select,input');}
+  function change(label,value){const input=field(label);input.value=String(value);
+    input.dispatchEvent(new Event(input.tagName==='INPUT'?'input':'change',{bubbles:true}));}
+  function exportsLocked(){return button('下载讨论报告 HTML').disabled&&button('下载核对数据 JSON').disabled;}
+  function metric(label){const box=[...host.querySelectorAll('.impact-metric')].find(el=>el.querySelector('small')?.textContent===label);
+    if(!box)throw Error(`Missing metric: ${label}`);return box.querySelector('strong').textContent;}
+  async function flush(){for(let i=0;i<16;i++)await Promise.resolve();}
+  function pending(kind){const ticket=tickets.find(item=>item.kind===kind&&!item.record.settled);
+    if(!ticket)throw Error(`No pending ${kind} request`);return ticket;}
+  function countRequests(kind){return report.requests.filter(item=>item.kind===kind).length;}
+  async function fresh(adapters={getScene:()=>null}){
+    window.ImpactWorkbench.close();
+    for(const ticket of tickets)if(!ticket.record.settled)ticket.reply({detail:'fixture reset'},499);
+    await flush();
+    window.ImpactWorkbench.open({ifline_comparison:pair},adapters);
+    await flush();return pending('impact');
+  }
+  async function complete(ticket,options={},fraction=.75){
+    ticket.reply(payload(ticket,options));await flush();
+    pending('coverage').reply(coverage(fraction));await flush();
+  }
+  async function exportedJSON(){const before=capturedDownloads.length;button('下载核对数据 JSON').click();
+    check(capturedDownloads.length===before+1,'Enabled JSON export produces one in-memory download');
+    const item=capturedDownloads.at(-1);check(item.name==='ifline-impact.json','JSON export uses expected filename');
+    return JSON.parse(await item.blob.text());}
+  async function exportedHTML(){const before=capturedDownloads.length;button('下载讨论报告 HTML').click();
+    check(capturedDownloads.length===before+1,'Enabled HTML export produces one in-memory download');
+    const item=capturedDownloads.at(-1);check(item.name==='ifline-discussion-report.html','HTML export uses expected filename');
+    return new DOMParser().parseFromString(await item.blob.text(),'text/html');}
+  function newEntrySummary(){const node=[...host.querySelectorAll('.impact-notes')].find(el=>el.textContent.includes('新增路段进入次数合计'));
+    if(!node)throw Error('Missing new-link entry summary');return node.textContent;}
+  function checkSourceQuality(scope,expected,context){
+    const fields={rows:'总行',invalid_rows:'无效行',duplicate_keys:'重复键',invalid_key_rows:'无效标识',
+      invalid_departure_rows:'出发时间',invalid_travel_time_rows:'耗时',invalid_mode_rows:'方式'};
+    for(const [side,label]of [['baseline','A'],['proposal','B']]){
+      const paragraph=[...scope.querySelectorAll('.impact-quality p')].find(el=>el.textContent.startsWith(`${label} 源出行表：`));
+      check(!!paragraph,`${context}: ${label} source diagnostics have their own labelled paragraph`);
+      for(const [key,caption]of Object.entries(fields))check(new RegExp(`${caption} ${expected[side][key]}(?![0-9])`).test(paragraph.textContent),
+        `${context}: ${label} source ${key} displays its actual nonzero response value`);
+      check(paragraph.textContent.includes('全表诊断')&&paragraph.textContent.includes('并非筛选后队列')&&paragraph.textContent.includes('可能重叠'),
+        `${context}: ${label} diagnostics explain whole-table scope and overlapping invalid categories`);
+    }
+  }
+  async function scenario(name,run){report.scenarios.push(name);output.textContent=`Running: ${name}\n${report.checks.length} checks passed so far`;
+    await run();}
+
+  try {
+    check(typeof window.ImpactWorkbench?.open==='function','Real impact-ui.js loaded');
+    if(layoutProbe){
+      // A real independent viewport, with the same mocked transport. Do not run
+      // the parent scenarios recursively or borrow its DOM/module singleton.
+      await complete(await fresh());
+      button('road',control('.impact-table-wrap')).click();button('加入 / 移出走廊',control('.impact-detail')).click();
+      button('应用条件并分析').click();await complete(pending('impact'),{paired:1});
+      button('road',control('.impact-table-wrap')).click();
+      check(!exportsLocked(),'Layout child has applied results and enabled export actions');
+      check(report.forbiddenRequests.length===0&&tickets.every(ticket=>ticket.record.settled),'Layout child uses only settled deterministic GET fixtures');
+      report.status='passed';output.dataset.status='passed';return;
+    }
+    await scenario('Initial result, fixed map views, null ranking and exports',async()=>{
+      const ticket=await fresh();
+      check(exportsLocked()&&button('应用条件并分析').disabled,'Initial request locks apply and both exports');
+      check(ticket.url.searchParams.get('start_s')==='0'&&ticket.url.searchParams.get('end_s')==='108000','Default request is 0–30 hours in seconds');
+      check(ticket.url.searchParams.get('mode')==='car'&&ticket.url.searchParams.get('links')==='','Default request is car with no selected links');
+      await complete(ticket);
+      check(!exportsLocked()&&!button('应用条件并分析').disabled,'Successful result unlocks apply and exports');
+      check(metric('配对出行 / 基线队列')==='2 / 2','Paired/cohort metric uses returned counts');
+      check(metric('配对出行平均耗时变化')==='+5 秒','Signed paired delta displays proposal minus baseline');
+      check(host.querySelectorAll('.impact-map [data-link-id]').length===4,'Delta map retains all four network-union links');
+      const order=[...host.querySelectorAll('.impact-table-wrap tbody button')].map(el=>el.textContent);
+      check(order[0]==='road'&&order[1]==='neutral','Observed zero delta ranks before unavailable link deltas');
+      button('A 延误').click();check(host.querySelectorAll('.impact-map [data-link-id]').length===3,'Baseline map excludes the proposal-only link');
+      button('B 延误').click();check(host.querySelectorAll('.impact-map [data-link-id]').length===4,'Proposal map includes the new link');
+      button('B − A 耗时差').click();
+      const data=await exportedJSON();check(data.analysis.filters.mode==='car'&&data.analysis.network.links.length===4,'JSON retains applied filters and full link context');
+      const before=capturedDownloads.length;button('下载讨论报告 HTML').click();
+      check(capturedDownloads.length===before+1,'Enabled HTML export is intercepted without downloading');
+      const html=await capturedDownloads.at(-1).blob.text();
+      check(html.includes(pair.baseline_run)&&html.includes(pair.proposal_run)&&html.includes('<svg'),'HTML export contains applied pair and current map');
+    });
+
+    await scenario('Large network selections keep base geometry instead of rebuilding it',async()=>{
+      const ticket=await fresh(),data=payload(ticket);
+      const template=data.network.links.find(r=>r.id==='road');
+      data.network.links=Array.from({length:11331},(_,i)=>({...clone(template),id:`perf-${i}`}));
+      ticket.reply(data);await flush();pending('coverage').reply(coverage());await flush();
+      const svg=control('.impact-map'),first=svg.firstChild,hit=svg.querySelector('[data-link-id]');
+      const observer=new MutationObserver(()=>{});observer.observe(svg,{childList:true});
+      const start=performance.now();
+      for(let i=0;i<20;i++)button(`perf-${i}`,control('.impact-table-wrap')).click();
+      const duration=performance.now()-start;
+      check(svg.firstChild===first&&hit.isConnected,'20 inspections retain the same base geometry and hit nodes');
+      check(observer.takeRecords().length===0,'Inspecting links never clears/rebuilds the base SVG');
+      button('加入 / 移出走廊',control('.impact-detail')).click();button('清空范围').click();button('复位地图').click();
+      check(svg.firstChild===first&&observer.takeRecords().length===0,'Corridor toggles, clear and reset retain the base map');
+      observer.disconnect();
+      check(svg.querySelectorAll('[data-link-id]').length===11331,'All 11331 directed links remain selectable');
+      report.performance={links:11331,inspections:20,totalHandlerMs:duration};
+    });
+
+    await scenario('3D focus resolves a lazy viewer and ignores a retired workbench',async()=>{
+      let resolveScene,loads=0,focused=0;
+      const adapters={getScene:()=>null,ensureScene:()=>{loads++;return new Promise(resolve=>resolveScene=resolve);}};
+      await complete(await fresh(adapters));
+      button('road',control('.impact-table-wrap')).click();
+      const focus=button('在下方 3D 中定位');check(!focus.disabled,'Deferred scene still offers 3D positioning');focus.click();
+      check(loads===1&&focus.disabled,'Positioning waits for one lazy load');
+      const scene={userData:{coordinateTransform:{center_x:0,center_y:0,scene_units_per_metre:1},groundY:()=>0,setCameraFocus:()=>focused++}};
+      resolveScene(scene);await flush();check(focused===1&&!focus.disabled,'Loaded viewer receives positioning and re-enables control');
+      focus.click();resolveScene(null);await flush();check(!focus.disabled,'Failed lazy loading remains retryable');
+      focus.click();window.ImpactWorkbench.close();resolveScene(scene);await flush();
+      check(focused===1,'Late viewer cannot reposition a retired workbench');
+    });
+
+    await scenario('Preset/custom times and dirty-state export lock',async()=>{
+      await complete(await fresh());
+      const before=countRequests('impact');change('观察时段','25200,32400');
+      check(field('开始（小时）').value==='7'&&field('结束（小时，不含）').value==='9','Morning preset updates both hour controls');
+      check(exportsLocked()&&countRequests('impact')===before,'Changing a filter locks exports without requesting analysis');
+      const downloads=capturedDownloads.length;button('下载核对数据 JSON').click();button('下载讨论报告 HTML').click();
+      check(capturedDownloads.length===downloads,'Native clicks on disabled dirty exports create no downloads');
+      check(control('.impact-status').textContent.includes('尚未重新分析'),'Dirty result is explicitly marked unapplied');
+      button('应用条件并分析').click();const morning=pending('impact');
+      check(morning.url.searchParams.get('start_s')==='25200'&&morning.url.searchParams.get('end_s')==='32400','Applied preset sends seconds, not hours');
+      await complete(morning);
+      change('开始（小时）',30.5);change('结束（小时，不含）',31.25);
+      check(field('观察时段').value==='custom','Editing either time selects custom period');
+      button('应用条件并分析').click();const custom=pending('impact');
+      check(custom.url.searchParams.get('start_s')==='109800'&&custom.url.searchParams.get('end_s')==='112500','Custom times support fractional hours beyond midnight');
+      await complete(custom);
+      const data=await exportedJSON();check(data.analysis.filters.start_s===109800&&data.analysis.filters.end_s===112500,'Export contains newly applied custom seconds');
+    });
+
+    await scenario('Invalid or empty time rejects locally, then retries',async()=>{
+      await complete(await fresh());
+      for(const [start,end]of[['',30],[10,10],[-1,30],[0,49]]){
+        const before=countRequests('impact');change('开始（小时）',start);change('结束（小时，不含）',end);
+        button('应用条件并分析').click();await flush();
+        check(countRequests('impact')===before,`Invalid time ${JSON.stringify([start,end])} never fetches analysis`);
+        check(control('.impact-status').classList.contains('error')&&exportsLocked(),'Invalid window shows error and keeps exports locked');
+      }
+      change('开始（小时）',0);change('结束（小时，不含）',30);button('应用条件并分析').click();
+      await complete(pending('impact'));
+      check(!control('.impact-status').classList.contains('error')&&!exportsLocked(),'Correcting the window permits a successful retry');
+    });
+
+    await scenario('Mode requests, visible map scope and teleported link unavailability',async()=>{
+      await complete(await fresh());
+      const labels={car:'路段指标仅含汽车',bike:'路段指标仅含骑行',all:'路段指标仅含汽车与骑行',
+        walk:'步行没有网络路段观测',pt:'公共交通为传送模式，没有网络路段观测'};
+      for(const mode of ['car','bike','all','walk','pt']){
+        change('基线出行方式',mode);check(exportsLocked(),`Changing mode to ${mode} invalidates exports`);
+        button('应用条件并分析').click();const ticket=pending('impact');
+        check(ticket.url.searchParams.get('mode')===mode,`${mode} filter reaches fetch unchanged`);
+        await complete(ticket);
+        for(const view of ['A 延误','B 延误','B − A 耗时差']){
+          button(view).click();
+          check(control('.impact-legend').textContent.includes(labels[mode]),`${mode}: ${view} visibly identifies the network-mode scope`);
+          if(mode==='all')check(control('.impact-legend').textContent.includes('步行和公共交通没有网络路段观测'),
+            `All-mode ${view} legend explicitly excludes teleported link observations`);
+        }
+        const data=await exportedJSON();check(data.analysis.filters.mode===mode,`${mode} export matches applied mode`);
+        if(mode==='all')check(data.analysis.network.modes.join(',')==='bike,car','All-mode network payload stays explicitly car+bike');
+        if(mode==='walk'||mode==='pt'){
+          check(control('.impact-quality').textContent.includes('传送'),'Teleported mode is explained beside quality diagnostics');
+          check(host.querySelectorAll('.impact-map line[stroke-dasharray]').length===4,'Unavailable link measures render as dashed map lines');
+          check(data.analysis.network.links.every(row=>row.baseline===null&&row.proposal===null),'Teleported link observations stay null in export');
+          check(metric('配对出行 / 基线队列')==='2 / 2','Teleported trip statistics remain distinct from link availability');
+        }
+      }
+    });
+
+    await scenario('Multiple selected links, retained map context, empty selection',async()=>{
+      await complete(await fresh());
+      for(const id of ['road','neutral']){
+        button(id,control('.impact-table-wrap')).click();button('加入 / 移出走廊',control('.impact-detail')).click();
+      }
+      check(exportsLocked()&&control('.impact-scope').textContent.includes('2 条'),'Selecting two links marks a two-link pending corridor');
+      button('应用条件并分析').click();const scoped=pending('impact');
+      check(scoped.url.searchParams.get('links')==='road,neutral','Selected directed IDs serialize once in the request');
+      await complete(scoped,{paired:1});
+      check(host.querySelectorAll('.impact-table-wrap tbody tr').length===2,'Applied corridor filters the detail table');
+      check(host.querySelectorAll('.impact-map [data-link-id]').length===4,'Applied corridor keeps outside links in map context');
+      const data=await exportedJSON();check(data.analysis.network.summary.link_count===2&&data.analysis.network.outside_selection.link_count===2,'Selected and outside summaries remain disjoint in exported response');
+      button('清空范围').click();check(exportsLocked(),'Clearing the corridor invalidates the previous export');
+      button('应用条件并分析').click();const cleared=pending('impact');
+      check(cleared.url.searchParams.get('links')==='','Cleared selection sends an empty filter, not an empty link ID');
+      await complete(cleared);check(host.querySelectorAll('.impact-table-wrap tbody tr').length===4,'Empty selection restores all table rows');
+    });
+
+    await scenario('Empty paired cohort preserves null measurements',async()=>{
+      await complete(await fresh(),{empty:true});
+      check(metric('配对出行 / 基线队列')==='0 / 0','Empty cohort is reported as zero observed pairs');
+      check(metric('配对出行平均耗时变化')==='— 秒','Empty paired delta is unavailable, not zero benefit');
+      check(metric('配对出行 P95 耗时')==='— → — 秒','Empty percentile measurements remain unavailable');
+      check(!text().includes('NaN')&&!text().includes('Infinity'),'Empty result renders no NaN or Infinity');
+      const data=await exportedJSON();check(data.analysis.trips.delta_s.mean===null&&data.analysis.trips.baseline.mean_s===null,'Empty cohort exports JSON nulls');
+      check(data.analysis.network.links.find(row=>row.id==='road').baseline.entered_count===0,'Observed zero entries stay distinct from null travel time');
+    });
+
+    await scenario('Nullable coverage does not become zero percent',async()=>{
+      await complete(await fresh(),{},null);
+      const coverageText=[...control('.impact-quality').querySelectorAll('p')].find(el=>el.textContent.includes('输入活动点在路网节点矩形内'))?.textContent;
+      check(!!coverageText&&coverageText.includes('—%')&&!coverageText.includes('0%'),'Null coverage is displayed as unavailable, not 0%');
+      const data=await exportedJSON();check(data.coverage.activities.inside_node_bbox_fraction_of_finite===null,'Null coverage remains null in JSON export');
+      check(control('.impact-quality').querySelectorAll('table th').length>=3,'Completion diagnostics retain a visible labelled table');
+    });
+
+    await scenario('Source quality reads real counters, not filtered cohort counts',async()=>{
+      const diagnostics=sourceQuality();await complete(await fresh(),{sourceDiagnostics:diagnostics});
+      checkSourceQuality(host,diagnostics,'Visible quality');
+      check(metric('配对出行 / 基线队列')==='2 / 2','Whole-source invalid rows and duplicates do not replace filtered cohort counts');
+      const data=await exportedJSON();
+      check(JSON.stringify(data.analysis.trips.quality)===JSON.stringify(diagnostics),'JSON preserves all actual source-quality fields, including counters not displayed');
+      check(data.analysis.trips.unmatched.proposal_duplicate_keys_in_cohort===0,'Source duplicate keys stay separate from cohort duplicate-key diagnostics');
+    });
+
+    await scenario('New-link sums follow selected scope and preserve unavailable versus zero',async()=>{
+      const counts={newEntries:7,extraNewEntries:19};await complete(await fresh(),counts);
+      check(newEntrySummary().includes('全网新增路段进入次数合计：26（'),'Unfiltered new-link sum includes both observed new links');
+      button('new',control('.impact-table-wrap')).click();button('加入 / 移出走廊',control('.impact-detail')).click();
+      button('应用条件并分析').click();const scoped=pending('impact');
+      check(scoped.url.searchParams.get('links')==='new','New-link corridor uses only the selected new link');
+      await complete(scoped,counts);
+      check(newEntrySummary().includes('所选走廊新增路段进入次数合计：7（'),'Selected new-link sum excludes the 19 outside entries');
+      check(host.querySelectorAll('.impact-table-wrap tbody tr').length===1&&host.querySelectorAll('.impact-map [data-link-id]').length===5,
+        'Scoped new-link table retains all five links on the map');
+      let data=await exportedJSON();
+      check(data.analysis.network.links.find(row=>row.id==='new-outside').proposal.entered_count===19,
+        'Outside new-link observations remain present in full-context JSON');
+      for(const mode of ['walk','pt']){
+        change('基线出行方式',mode);button('应用条件并分析').click();
+        await complete(pending('impact'),{...counts,empty:true});
+        check(newEntrySummary().includes('所选走廊新增路段进入次数合计：不可用（'),`${mode} new-link sum is unavailable, never a fabricated zero`);
+        data=await exportedJSON();
+        check(data.analysis.network.links.find(row=>row.id==='new').proposal===null,`${mode} selected new-link JSON preserves null observations`);
+      }
+      change('基线出行方式','car');button('应用条件并分析').click();
+      await complete(pending('impact'),{...counts,newEntries:0,empty:true});
+      check(newEntrySummary().includes('所选走廊新增路段进入次数合计：0（'),'Available car observations with zero new-link entries display a genuine zero');
+      data=await exportedJSON();
+      const zero=data.analysis.network.links.find(row=>row.id==='new').proposal;
+      check(zero.entered_count===0&&zero.mean_travel_time_s===null,'Observed zero entries do not fabricate a mean travel time');
+      button('清空范围').click();button('应用条件并分析').click();await complete(pending('impact'),counts);
+      button('road',control('.impact-table-wrap')).click();button('加入 / 移出走廊',control('.impact-detail')).click();
+      button('应用条件并分析').click();await complete(pending('impact'),counts);
+      check(newEntrySummary().includes('所选走廊新增路段进入次数合计：0（'),'A corridor with no new links does not inherit the whole-network new-link total');
+    });
+
+    await scenario('HTML export retains structured quality table and matching JSON evidence',async()=>{
+      const ticket=await fresh(),diagnostics=sourceQuality(),expected=payload(ticket,{sourceDiagnostics:diagnostics});
+      const counts={baseline:{car:{departures:11,arrivals:7,stuck:2},bike:{departures:5,arrivals:4,stuck:1}},
+        proposal:{car:{departures:13,arrivals:9,stuck:3},bike:{departures:6,arrivals:5,stuck:0}}};
+      for(const side of ['baseline','proposal'])Object.assign(expected.completion[side],counts[side]);
+      ticket.reply(expected);await flush();pending('coverage').reply(coverage(null));await flush();
+      const doc=await exportedHTML();
+      check(doc.querySelectorAll('.impact-quality').length===1,'HTML export retains a single structured quality section');
+      const table=doc.querySelector('.impact-quality table');
+      check(!!table,'HTML export contains a real completion table, not flattened text');
+      check(JSON.stringify([...table.querySelectorAll('th')].map(cell=>cell.textContent))===
+        JSON.stringify(['方式','A 出发 / 到达 / 卡住','B 出发 / 到达 / 卡住']),
+        'Exported completion table preserves three separately labelled header cells');
+      const rows=[...table.querySelectorAll('tr')].filter(row=>row.querySelector('td'));
+      check(rows.length===5&&rows.every(row=>row.querySelectorAll('td').length===3),'Exported completion table retains five modes and three cells per mode');
+      for(const [mode,label]of [['car','汽车'],['bike','骑行']]){
+        const cells=[...rows.find(row=>row.firstElementChild.textContent===label).querySelectorAll('td')].map(cell=>cell.textContent);
+        const values=side=>{const c=counts[side][mode];return `${c.departures} / ${c.arrivals} / ${c.stuck}`;};
+        check(JSON.stringify(cells)===JSON.stringify([label,values('baseline'),values('proposal')]),
+          `Exported ${mode} row preserves distinct A/B departure, arrival and stuck counts`);
+      }
+      checkSourceQuality(doc,diagnostics,'HTML quality');
+      check(doc.querySelector('.impact-quality').textContent.includes('—%'),'HTML export preserves unavailable coverage instead of zero percent');
+      check(!!doc.querySelector('svg')&&doc.body.textContent.includes(pair.baseline_run)&&doc.body.textContent.includes(pair.proposal_run),
+        'Structured HTML export still includes the applied pair and map');
+      check(JSON.stringify(JSON.parse(doc.querySelector('details pre').textContent))===JSON.stringify(expected.sources),
+        'HTML source identities and hashes remain machine-readable JSON inside the report');
+      const data=await exportedJSON();
+      check(JSON.stringify(data.analysis.completion)===JSON.stringify(expected.completion)&&JSON.stringify(data.analysis.trips.quality)===JSON.stringify(diagnostics),
+        'JSON export retains the same structured completion and source-quality evidence as HTML');
+      check(data.coverage.activities.inside_node_bbox_fraction_of_finite===null,'Companion JSON also retains nullable coverage');
+    });
+
+    await scenario('Fetch error clears old result and retry succeeds',async()=>{
+      await complete(await fresh());
+      change('基线出行方式','bike');button('应用条件并分析').click();pending('impact').fail('fixture transport unavailable');await flush();
+      check(control('.impact-status').classList.contains('error')&&text().includes('fixture transport unavailable'),'Transport error is visible');
+      check(!host.querySelector('.impact-metrics')&&exportsLocked(),'Failed analysis shows no old metric conclusions and cannot export');
+      check(!button('应用条件并分析').disabled,'Failed request re-enables retry');
+      button('应用条件并分析').click();const retry=pending('impact');check(retry.url.searchParams.get('mode')==='bike','Retry preserves requested filters');
+      await complete(retry,{mean:8});check(metric('配对出行平均耗时变化')==='+8 秒'&&!exportsLocked(),'Retry publishes its own response and unlocks exports');
+    });
+
+    await scenario('Mismatched-pair HTTP error is not reported as comparable',async()=>{
+      await complete(await fresh());change('比较方案 B','fixture_mismatched_sim');button('应用条件并分析').click();
+      const ticket=pending('impact');check(ticket.url.searchParams.get('proposal')==='fixture_mismatched_sim','Pair selector changes the proposal request');
+      ticket.reply({detail:'Runs are not comparable: actual output configs differ'},400);await flush();
+      check(control('.impact-status').classList.contains('error')&&text().includes('actual output configs differ'),'HTTP 400 exposes the comparability failure');
+      check(!host.querySelector('.impact-metrics')&&exportsLocked(),'Mismatched pair produces no old metrics or export');
+      change('比较方案 B',pair.proposal_run);button('应用条件并分析').click();await complete(pending('impact'));
+      check(!exportsLocked()&&!control('.impact-status').classList.contains('error'),'Selecting a compatible pair allows retry');
+    });
+
+    await scenario('Late analysis while dirty cannot unlock exports',async()=>{
+      const old=await fresh();change('基线出行方式','bike');
+      const before=countRequests('coverage');old.reply(payload(old,{paired:999,mean:999}));await flush();
+      check(old.record.aborted&&exportsLocked(),'Late response after unapplied edits cannot re-enable exports');
+      check(!host.querySelector('.impact-metrics')&&countRequests('coverage')===before,'Dirty late response publishes neither metrics nor a coverage request');
+      check(!button('应用条件并分析').disabled,'Unapplied edit remains available to submit after old response');
+      const downloads=capturedDownloads.length;button('下载核对数据 JSON').click();button('下载讨论报告 HTML').click();
+      check(capturedDownloads.length===downloads,'Neither export downloads a stale response after dirty edits');
+      button('应用条件并分析').click();await complete(pending('impact'));
+      check(!exportsLocked(),'Applying the edited filters restores normal exports');
+    });
+
+    await scenario('Late aborted analysis cannot overwrite newer applied state',async()=>{
+      await complete(await fresh());change('基线出行方式','bike');button('应用条件并分析').click();const old=pending('impact');
+      change('开始（小时）',1);check(old.record.aborted&&exportsLocked(),'Dirty input aborts the older request and locks export');
+      button('应用条件并分析').click();const newest=tickets.filter(ticket=>ticket.kind==='impact'&&!ticket.record.settled).at(-1);
+      // Complete the newer response first; the older request is still unresolved.
+      newest.reply(payload(newest,{paired:7,mean:40}));await flush();pending('coverage').reply(coverage(.75));await flush();
+      const coverageCount=countRequests('coverage');old.reply(payload(old,{paired:999,mean:999}));await flush();
+      check(metric('配对出行 / 基线队列')==='7 / 7'&&metric('配对出行平均耗时变化')==='+40 秒','Late old analysis cannot replace newer metrics');
+      check(countRequests('coverage')===coverageCount,'Discarded analysis cannot launch a stale coverage request');
+      const data=await exportedJSON();check(data.analysis.filters.start_s===3600&&data.analysis.trips.paired_count===7,'Export keeps the newer request snapshot after late response');
+    });
+
+    await scenario('Late coverage cannot overwrite newer coverage',async()=>{
+      const first=await fresh();first.reply(payload(first));await flush();const old=pending('coverage');
+      change('基线出行方式','bike');button('应用条件并分析').click();const newest=pending('impact');
+      newest.reply(payload(newest));await flush();
+      const newCoverage=tickets.filter(ticket=>ticket.kind==='coverage'&&!ticket.record.settled).at(-1);
+      newCoverage.reply(coverage(.75));await flush();old.reply(coverage(.25));await flush();
+      check(old.record.aborted,'Old coverage request was cancelled on filter change');
+      const data=await exportedJSON();check(data.coverage.activities.inside_node_bbox_fraction_of_finite===.75,'Late coverage response cannot replace the active audit');
+      check(control('.impact-quality').textContent.includes('75%')&&!control('.impact-quality').textContent.includes('25%'),'Visible quality also retains the active coverage');
+    });
+
+    await scenario('Close discards late results and reopen starts clean',async()=>{
+      const old=await fresh();window.ImpactWorkbench.close();old.reply(payload(old,{paired:999}));await flush();
+      check(host.hidden&&host.children.length===0,'Closed workbench is not reopened by a late response');
+      await complete(await fresh());check(metric('配对出行 / 基线队列')==='2 / 2','Reopened workbench starts with its new result');
+    });
+
+    await scenario('Native iframe layouts at 375, 760 and 1280 CSS pixels',async()=>{
+      const holder=document.createElement('div');holder.style.cssText='width:100%;overflow:auto';document.body.append(holder);
+      try {
+        for(const width of [375,760,1280]){
+          const frame=document.createElement('iframe');frame.title=`Impact workbench ${width}px layout probe`;
+          frame.style.cssText=`display:block;width:${width}px;height:1000px;border:0;max-width:none`;
+          const url=new URL(location.href);url.searchParams.set('impact-layout-probe','1');url.hash='';
+          let timer;
+          const ready=new Promise((resolve,reject)=>{
+            timer=setTimeout(()=>reject(Error(`Layout iframe ${width}px did not finish within 15 seconds`)),15000);
+            frame.onload=async()=>{try{
+              const done=frame.contentWindow.impactWorkbenchFixtureDone;
+              if(!done)throw Error(`Layout iframe ${width}px did not load the fixture`);
+              resolve(await done);
+            }catch(error){reject(error);}};
+            frame.onerror=()=>reject(Error(`Unable to load layout iframe ${width}px`));
+          });
+          frame.src=url.href;holder.append(frame);
+          try {
+            const childReport=await ready,w=frame.contentWindow,d=w.document,root=d.getElementById('impactWorkbench');
+            check(childReport.status==='passed',`${width}px child initializes the actual workbench: ${childReport.failures.join('; ')}`);
+            check(w.innerWidth===width,`${width}px iframe has a genuine independent innerWidth, not an emulated capability`);
+            const viewport=d.documentElement.clientWidth;
+            const inside=(node,parentRect={left:0,right:viewport})=>{
+              const r=node.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=parentRect.left-1&&r.right<=parentRect.right+1;
+            };
+            check(inside(root),`${width}px workbench outer box fits the child viewport`);
+            check(d.documentElement.scrollWidth<=viewport+1,`${width}px document has no horizontal page overflow`);
+            const groups=['.impact-controls','.impact-period','.impact-actions','.impact-map-layout','.impact-map-shell','.impact-mapbar','.impact-detail'];
+            const measured={requestedWidth:width,innerWidth:w.innerWidth,clientWidth:viewport,groups:[]};report.layouts.push(measured);
+            for(const selector of groups){
+              const node=root.querySelector(selector);check(!!node,`${width}px contains ${selector}`);
+              const rect=node.getBoundingClientRect();
+              measured.groups.push({selector,width:rect.width,clientWidth:node.clientWidth,scrollWidth:node.scrollWidth});
+              check(inside(node)&&node.scrollWidth<=node.clientWidth+1,`${width}px ${selector} fits without horizontal overflow or clipped contents`);
+            }
+            const controls=[...root.querySelectorAll('.impact-controls select,.impact-period select,.impact-period input')];
+            check(controls.length===6&&controls.every(node=>inside(node)&&inside(node,node.parentElement.getBoundingClientRect())),
+              `${width}px pair, period, time and mode controls all fit their labels and viewport`);
+            const actions=[...root.querySelectorAll('.impact-actions button,.impact-mapbar button,.impact-detail button')];
+            check(actions.length>=11&&actions.every(node=>inside(node)&&inside(node,node.parentElement.getBoundingClientRect())&&node.scrollWidth<=node.clientWidth+1),
+              `${width}px analysis, export, map and inspected-link actions are not horizontally clipped`);
+            const map=root.querySelector('.impact-map');
+            check(inside(map)&&inside(map,root.querySelector('.impact-map-shell').getBoundingClientRect())&&map.querySelectorAll('[data-link-id]').length===4,
+              `${width}px actual SVG map fits its shell and preserves outside-selection context`);
+            const wrap=root.querySelector('.impact-table-wrap'),overflow=w.getComputedStyle(wrap).overflowX;
+            check(inside(wrap)&&['auto','scroll'].includes(overflow),`${width}px link table overflow is confined to its own scroll container`);
+            if(wrap.scrollWidth>wrap.clientWidth+1){
+              wrap.scrollLeft=wrap.scrollWidth;
+              check(wrap.scrollLeft>0,`${width}px wide link columns remain reachable by local horizontal scrolling`);wrap.scrollLeft=0;
+            }
+            check(childReport.forbiddenRequests.length===0&&childReport.requests.every(request=>request.method==='GET'&&request.settled),
+              `${width}px layout probe makes no API, simulation or unsettled fixture requests`);
+          } finally {clearTimeout(timer);frame.remove();}
+        }
+      } finally {holder.remove();}
+    });
+
+    check(report.forbiddenRequests.length===0,'No request escaped the GET-only fixture API allowlist');
+    check(tickets.every(ticket=>ticket.record.settled),'All deferred fixture requests have been explicitly settled');
+    report.status='passed';output.dataset.status='passed';
+    output.textContent=`PASS: ${report.checks.length} checks in ${report.scenarios.length} scenarios\n`+
+      `Large map handler sample (not FPS): ${JSON.stringify(report.performance)}\n`+report.checks.join('\n');
+  } catch(error) {
+    report.status='failed';report.failures.push(error.stack||String(error));output.dataset.status='failed';
+    output.textContent=`FAIL after ${report.checks.length} checks: ${error.stack}\nPassed before failure:\n`+report.checks.join('\n');
+  } finally {
+    finish(report);
+  }
+})();
+</script>
+</html>

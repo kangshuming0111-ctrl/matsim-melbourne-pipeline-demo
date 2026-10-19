@@ -90,7 +90,7 @@ def check_system() -> dict:
         + ("" if python_ok else "；需要 Python 3.10 或更高版本"),
     ))
 
-    missing_packages = [name for name in ("fastapi", "uvicorn", "rasterio")
+    missing_packages = [name for name in ("fastapi", "uvicorn", "rasterio", "shapely")
                         if importlib.util.find_spec(name) is None]
     checks.append(_item(
         "packages", "Python 依赖", "ready" if not missing_packages else "blocked",
@@ -127,7 +127,9 @@ def check_system() -> dict:
     if not (DATA_DIR / "dem" / "fabdem_melbourne.tif").is_file():
         visual_missing.append("FABDEM 地形")
     missing_landmarks = [key for key in PRESET_LANDMARK_KEYS
-                         if not (DATA_DIR / "landmarks" / f"{key}.json").is_file()]
+                         if not any(p.is_file() for p in (
+                             DATA_DIR / "landmarks" / "v2" / f"{key}.json",
+                             DATA_DIR / "landmarks" / f"{key}.json"))]
     if missing_landmarks:
         visual_missing.append(f"{len(missing_landmarks)} 个区域的建筑地标")
     checks.append(_item(

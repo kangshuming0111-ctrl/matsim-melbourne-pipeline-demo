@@ -1,0 +1,67 @@
+{
+  "suite": "P2 internal evaluation v1",
+  "split": "development",
+  "engine": "ai",
+  "count": 30,
+  "passed": 14,
+  "all_case_accuracy": 0.4666666666666667,
+  "numeric_answerable_count": 20,
+  "numeric_answerable_correct": 4,
+  "numeric_answerable_accuracy": 0.2,
+  "strict_model_numeric_correct": 4,
+  "strict_model_numeric_accuracy": 0.2,
+  "insufficient_evidence_cases": 9,
+  "correct_refusals": 9,
+  "citation_failures": 0,
+  "ai_used_cases": 21,
+  "fallback_cases": 0,
+  "latency_ms": {
+    "all_p50": 4234.1375,
+    "all_p95": 8096.389,
+    "model_invoked_p50": 6033.363,
+    "model_invoked_p95": 8112.913
+  },
+  "api_cost_usd_total": 0,
+  "api_cost_usd_per_question": 0,
+  "cost_scope": "Local inference API fee only; electricity/hardware unmeasured. Download/storage/setup costs excluded.",
+  "model": {
+    "available": true,
+    "provider": "ollama-local",
+    "model": "qwen3:4b-instruct-2507-q4_K_M",
+    "version": "0.40.6",
+    "model_digest": "0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0",
+    "api_cost_usd": 0,
+    "cost_note": "Local inference: no API fee; electricity and hardware are not priced."
+  },
+  "wall_time_seconds": 123.13979576400016,
+  "code_sha256": {
+    "wrapper/assistant.py": "03e653b1530034ff1f61bcf8cdab1c2182b72da9e8bb02adbb0772d2cd224ba2",
+    "wrapper/ai_provider.py": "84e6ead23abad2bdf64522bc430892227b0ec3a61ab2f1a8e493156adf16712f",
+    "scripts/evaluate_assistant.py": "73bfb061e55742a6ad2326b9381bdc8a2c3bb9b7294455d3b0b20ec56d53c3fb"
+  },
+  "suite_sha256": "0b9b454546f7587a87cc6ebd24192a69545514fd138979c23624837bbd3ea49d",
+  "created_at_utc": "2026-10-19T09:42:51.455373+00:00",
+  "failed_ids": [
+    "p2-02",
+    "p2-04",
+    "p2-05",
+    "p2-07",
+    "p2-08",
+    "p2-09",
+    "p2-10",
+    "p2-11",
+    "p2-12",
+    "p2-13",
+    "p2-14",
+    "p2-15",
+    "p2-16",
+    "p2-19",
+    "p2-20",
+    "p2-21"
+  ],
+  "limitations": [
+    "Small same-author internal suite; not an external benchmark or production reliability guarantee.",
+    "Policy refusals can occur before the model; guarded refusals are not claims about unguarded model safety.",
+    "Evidence-bound explanations use reviewed claim blocks; the model routes and organizes, not unrestricted causal writing."
+  ]
+}

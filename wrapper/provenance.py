@@ -155,6 +155,7 @@ class RunRecorder:
         inputs: dict[str, Any],
         outputs: dict[str, str],
         random_seeds: dict[str, int | None],
+        logs: dict[str, str] | None = None,
         output_dir: Path = OUTPUT_DIR,
     ) -> None:
         self.run_id = run_id
@@ -178,11 +179,15 @@ class RunRecorder:
             "random_seeds": random_seeds,
             "inputs": inputs,
             "outputs": outputs,
-            "logs": {
+            "logs": logs or {
                 "pipeline": _project_path(self.log_path),
                 "network": f"output/{run_id}_network/makeMatsimNetwork.log",
                 "demand": f"output/{run_id}_demand/makeExamplePopulation.log",
                 "simulation": f"output/{run_id}_sim/logfile.log",
+                "network_console": f"output/process_logs/{run_id}_network.log",
+                "sa1_console": f"output/process_logs/{run_id}_sa1_subset.csv.log",
+                "demand_console": f"output/process_logs/{run_id}_demand.log",
+                "simulation_console": f"output/process_logs/{run_id}_sim.log",
             },
             "steps": [],
             "artifacts": {},

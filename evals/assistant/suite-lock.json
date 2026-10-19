@@ -1,0 +1,12 @@
+{
+  "suite": "P2 internal evaluation v1",
+  "created_before_implementation": true,
+  "development_count": 30,
+  "holdout_count": 20,
+  "oracle": "Native gzipped trip CSV arithmetic, recorded person/iteration counts and predeclared policy/quality cases; not the assistant implementation",
+  "protocol": "Develop/tune only on development. Freeze code/prompt hashes before first holdout use. Retain failures and every evaluation run. Do not call a rerun of a seen holdout unseen. Same-author internal holdout, not an external benchmark.",
+  "files": {
+    "development.jsonl": "0b9b454546f7587a87cc6ebd24192a69545514fd138979c23624837bbd3ea49d",
+    "holdout.jsonl": "d0b4e9d63b7ea6767b5d1b496d8e5edda9bc8579b34bc98f05bab3f2aef0d4f8"
+  }
+}

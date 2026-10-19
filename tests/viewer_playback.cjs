@@ -1,0 +1,25 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const THREE=require('../wrapper/static/vendor/three/three.min.js');
+const html=fs.readFileSync(require.resolve('../wrapper/static/index.html'),'utf8');
+const code=html.slice(html.indexOf('function formatSimClock('),html.lastIndexOf('</script>'));
+const controls=Object.fromEntries(['simSlider','simClock','simActiveCars','simPlayPause','simSpeed','simDensity'].map(id=>[id,Object.assign(new EventTarget(),{dataset:{}})]));
+controls.simSpeed.value='4';controls.simPlayPause.textContent='播放';
+const scope={THREE,document:{getElementById:id=>controls[id]}};vm.createContext(scope);vm.runInContext(code,scope);
+function scene(){const s=new THREE.Scene();s.userData={controls:{autoRotate:true},tickCallbacks:[],cleanupCallbacks:[]};return s;}
+const data={sim_time_range:[0,100],sim_focus_time:42,vehicles:[{trips:[[[0,0,0,0],[100,10,0,0]]]}]};
+const first=scene();scope.setupVehicleAnimation(first,data,()=>0);
+assert.equal(controls.simPlayPause.textContent,'暂停');assert.equal(controls.simPlayPause.disabled,false);
+controls.simPlayPause.dispatchEvent(new Event('click'));
+assert.equal(first.userData.playbackActive(),false);assert.equal(controls.simPlayPause.textContent,'播放');
+first.userData.cleanupCallbacks.forEach(f=>f());
+const next=scene();scope.setupVehicleAnimation(next,data,()=>0);
+assert.equal(next.userData.playbackActive(),true);assert.equal(controls.simPlayPause.textContent,'暂停');
+controls.simPlayPause.dispatchEvent(new Event('click'));
+assert.equal(first.userData.playbackActive(),false);assert.equal(next.userData.playbackActive(),false);
+next.userData.cleanupCallbacks.forEach(f=>f());
+const empty=scene();scope.setupVehicleAnimation(empty,{sim_time_range:[0,100],vehicles:[]},()=>0);
+assert.equal(empty.userData.playbackActive(),false);assert.equal(controls.simPlayPause.textContent,'无车辆回放');
+assert.equal(controls.simPlayPause.disabled,true);assert.equal(controls.simActiveCars.textContent,'0 辆仿真车');
+const again=scene();scope.setupVehicleAnimation(again,data,()=>0);
+assert.equal(controls.simPlayPause.disabled,false);assert.equal(controls.simPlayPause.textContent,'暂停');
+console.log('PASS vehicle controls: paused -> new run -> no vehicles -> new run, single listener and matching labels');

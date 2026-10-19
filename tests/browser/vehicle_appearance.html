@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<title>Vehicle paint and roof regression</title>
+<style>body{font:14px system-ui;margin:16px;background:#edf0f1;color:#253743}canvas{max-width:100%;display:block;margin:12px 0}pre{white-space:pre-wrap}.controls{display:none}</style>
+<h1>Small car paint / roof check</h1>
+<p>Synthetic eight-car fixture, production playback and materials. No traffic simulation.
+Top and oblique views under the city viewer's daylight settings.</p>
+<div class="controls"><input id="simSlider" type="range"><span id="simClock"></span><span id="simActiveCars"></span>
+<button id="simPlayPause"></button><select id="simSpeed"><option value="4">4</option></select>
+<select id="simDensity"><option value="1">1</option><option value="3">3</option><option value="5">5</option></select></div>
+<pre id="result">Running…</pre><div id="views"></div>
+<script src="../../wrapper/static/vendor/three/three.min.js"></script>
+<script>
+(async()=>{
+  const lines=[];
+  const check=(ok,msg)=>{if(!ok)throw Error(msg);lines.push('PASS '+msg);};
+  try{
+    // Exercise the current implementation, not a separately maintained car model.
+    const response=await fetch('../../wrapper/static/index.html');
+    if(!response.ok)throw Error('Production page unavailable');
+    const html=await response.text();
+    const code=html.slice(html.indexOf('function formatSimClock('),html.lastIndexOf('<'+'/script>'));
+    const setup=new Function('THREE','document',code+'; return setupVehicleAnimation;')(THREE,document);
+    const scene=new THREE.Scene();scene.background=new THREE.Color(0x8b9887);
+    scene.userData={controls:{autoRotate:false},tickCallbacks:[],cleanupCallbacks:[]};
+    scene.add(new THREE.HemisphereLight(0xe4f2ff,0x9aab99,.9));
+    scene.add(new THREE.AmbientLight(0xffffff,.18));
+    const sun=new THREE.DirectionalLight(0xfff4e5,1.05);sun.position.set(-140,320,100);scene.add(sun);
+    const rim=new THREE.DirectionalLight(0xc9e5f2,.3);rim.position.set(200,120,-180);scene.add(rim);
+    const positions=Array.from({length:8},(_,i)=>[(i%4-1.5)*3.2,(Math.floor(i/4)-.5)*4]);
+    setup(scene,{sim_time_range:[0,100],sim_focus_time:42,
+      vehicles:positions.map(([x,z])=>({trips:[[[0,x,0,z],[100,x,0,z]]]}))},()=>0);
+    const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+    renderer.setSize(560,360);renderer.outputEncoding=THREE.LinearEncoding;
+    renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.94;
+    const camera=new THREE.OrthographicCamera(-7.8,7.8,5,-5,.1,100);
+    camera.position.set(0,25,0);camera.up.set(0,0,-1);camera.lookAt(0,0,0);
+    renderer.render(scene,camera);
+    const target=new THREE.WebGLRenderTarget(560,360);
+    renderer.setRenderTarget(target);renderer.render(scene,camera);
+    const colors=[],pixel=new Uint8Array(4);
+    const roofs=scene.getObjectByName('vehicle-roofs'),m=new THREE.Matrix4();
+    for(let i=0;i<8;i++){
+      roofs.getMatrixAt(i,m);
+      const p=new THREE.Vector3().setFromMatrixPosition(m);p.y+=.12*.5/2;p.project(camera);
+      renderer.readRenderTargetPixels(target,Math.floor((p.x+1)*280),Math.floor((p.y+1)*180),1,1,pixel);
+      const rgb=Array.from(pixel.slice(0,3));colors.push(rgb);
+      check(Math.max(...rgb)>95 && rgb.reduce((a,b)=>a+b,0)/3>65,'roof '+i+' remains visible, RGB '+rgb.join('/'));
+    }
+    check(new Set(colors.map(c=>c.map(v=>Math.round(v/12)).join(','))).size>=6,'at least six visually distinct roof paint samples');
+    renderer.setRenderTarget(null);renderer.render(scene,camera);
+    document.getElementById('views').appendChild(renderer.domElement);
+    const second=new THREE.WebGLRenderer({antialias:true});second.setSize(560,360);
+    second.outputEncoding=renderer.outputEncoding;second.toneMapping=renderer.toneMapping;second.toneMappingExposure=.94;
+    const oblique=new THREE.PerspectiveCamera(35,560/360,.1,100);oblique.position.set(11,13,15);oblique.lookAt(0,0,0);
+    second.render(scene,oblique);document.getElementById('views').appendChild(second.domElement);
+    check(renderer.getContext().getError()===0 && second.getContext().getError()===0,'no WebGL errors in top/oblique views');
+    check(renderer.info.render.calls===4,'four instanced submissions for all eight cars');
+    document.getElementById('result').textContent=lines.join('\n')+'\nALL '+lines.length+' CHECKS PASSED';
+    document.getElementById('result').dataset.status='passed';target.dispose();
+  }catch(e){document.getElementById('result').textContent=lines.join('\n')+'\nFAIL '+e.stack;document.getElementById('result').dataset.status='failed';}
+})();
+</script></html>

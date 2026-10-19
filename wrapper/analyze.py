@@ -10,38 +10,36 @@ render its own HTML); summarize() builds the markdown report on top of it
 
 import csv
 import gzip
-import statistics
 from pathlib import Path
+
+from wrapper.measurements import measurement_stats, nonnegative_number, parse_time, trip_mode
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
-def _parse_hms(value: str) -> float:
-    """'00:40:59' -> seconds. Returns 0 for empty/malformed values."""
-    parts = value.split(":")
-    if len(parts) != 3:
-        return 0.0
-    h, m, s = parts
-    return int(h) * 3600 + int(m) * 60 + float(s)
+# Kept as an alias for callers; unavailable measurements now return None.
+_parse_hms = parse_time
 
 
-def _format_seconds(seconds: float) -> str:
+def _format_seconds(seconds: float | None) -> str:
+    if seconds is None:
+        return "无有效数据"
+    if seconds < 60:
+        return f"{seconds:g} 秒"
     minutes = seconds / 60
-    if minutes < 60:
-        return f"{minutes:.0f} 分钟"
-    return f"{minutes / 60:.1f} 小时"
+    return f"{minutes:.1f} 分钟" if minutes < 60 else f"{minutes / 60:.1f} 小时"
 
 
 def _read_trips(sim_dir: Path) -> list[dict]:
     path = sim_dir / "output_trips.csv.gz"
-    with gzip.open(path, "rt") as f:
+    with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as f:
         return list(csv.DictReader(f, delimiter=";"))
 
 
 def _read_person_count(sim_dir: Path) -> int:
     path = sim_dir / "output_persons.csv.gz"
-    with gzip.open(path, "rt") as f:
+    with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as f:
         return sum(1 for _ in csv.DictReader(f, delimiter=";"))
 
 
@@ -62,16 +60,20 @@ def compute_summary_data(sim_output_subdir: str) -> dict:
     score_rows = _read_scorestats(sim_dir)
 
     by_mode: dict[str, list[dict]] = {}
+    mode_quality = {"unknown": 0, "fallback": 0}
     for trip in trips:
-        mode = trip["modes"] or "(未知)"
+        mode, fallback = trip_mode(trip)
+        mode_quality["unknown"] += mode is None
+        mode_quality["fallback"] += fallback
+        mode = mode or "(未知)"
         by_mode.setdefault(mode, []).append(trip)
 
     total_trips = len(trips)
     mode_rows = []
     for mode, rows in sorted(by_mode.items(), key=lambda kv: -len(kv[1])):
         share = len(rows) / total_trips if total_trips else 0
-        avg_time = statistics.mean(_parse_hms(r["trav_time"]) for r in rows)
-        avg_dist = statistics.mean(float(r["traveled_distance"] or 0) for r in rows)
+        avg_time, time_quality = measurement_stats((r.get("trav_time") for r in rows), parse_time)
+        avg_dist, distance_quality = measurement_stats((r.get("traveled_distance") for r in rows), nonnegative_number)
         mode_rows.append({
             "mode": mode,
             "count": len(rows),
@@ -79,12 +81,23 @@ def compute_summary_data(sim_output_subdir: str) -> dict:
             "avg_time_seconds": avg_time,
             "avg_time_label": _format_seconds(avg_time),
             "avg_distance_m": avg_dist,
+            "time_quality": time_quality,
+            "distance_quality": distance_quality,
         })
 
     first_iter, first_score = score_rows[0]
     last_iter, last_score = score_rows[-1]
 
     return {
+        "summary_schema_version": 2,
+        "measurement_policy": "Available finite nonnegative measurements only; missing/invalid excluded separately per metric; real zero retained; empty means null.",
+        "mode_basis": "main_mode, otherwise a single recognized modes value; ambiguous/unsupported modes counted as unknown",
+        "units": {"avg_time_seconds": "seconds", "avg_distance_m": "metres"},
+        "data_quality": {
+            "time": {key: sum(row["time_quality"][key] for row in mode_rows) for key in ("valid", "missing", "invalid")},
+            "distance": {key: sum(row["distance_quality"][key] for row in mode_rows) for key in ("valid", "missing", "invalid")},
+            "mode": mode_quality,
+        },
         "sim_output_subdir": sim_output_subdir,
         "sim_dir": str(sim_dir),
         "person_count": person_count,
@@ -118,10 +131,13 @@ def summarize(sim_output_subdir: str) -> Path:
     lines.append("")
     lines.append("## 出行方式占比")
     lines.append("")
-    lines.append("| 方式 | 次数 | 占比 | 平均耗时 | 平均距离 |")
-    lines.append("|---|---|---|---|---|")
+    lines.append("均值按各指标有效记录计算；缺失和非法值不计为零。有效/缺失/非法数量分别列出。")
+    lines.append("| 方式 | 次数 | 占比 | 平均耗时 | 平均距离 | 时间有效/缺失/非法 | 距离有效/缺失/非法 |")
+    lines.append("|---|---|---|---|---|---|---|")
     for row in data["mode_rows"]:
-        lines.append(f"| {row['mode']} | {row['count']} | {row['share']:.1%} | {row['avg_time_label']} | {row['avg_distance_m']:.0f} 米 |")
+        distance = "无有效数据" if row["avg_distance_m"] is None else f"{row['avg_distance_m']:.0f} 米"
+        counts = ["/".join(str(row[field][key]) for key in ("valid", "missing", "invalid")) for field in ("time_quality", "distance_quality")]
+        lines.append(f"| {row['mode']} | {row['count']} | {row['share']:.1%} | {row['avg_time_label']} | {distance} | {counts[0]} | {counts[1]} |")
     lines.append("")
     lines.append("## 图表")
     lines.append("")
@@ -132,5 +148,5 @@ def summarize(sim_output_subdir: str) -> Path:
 
     content = "\n".join(lines)
     summary_path = OUTPUT_DIR / sim_output_subdir / "summary.md"
-    summary_path.write_text(content)
+    summary_path.write_text(content, encoding="utf-8")
     return summary_path

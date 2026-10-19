@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const {create}=require('../wrapper/static/plan-state.js');
+const store=create();const original=store.read();
+store.commit({...original,operations:[{type:'speed_limit',value:30}]});
+assert.equal(store.read().operations.length,1);assert.equal(original.operations.length,0);
+const mutated=store.read();mutated.operations[0].value=99;
+assert.equal(store.read().operations[0].value,30);
+store.undo();assert.equal(store.read().operations.length,0);
+store.redo();assert.equal(store.read().operations[0].value,30);
+store.undo();store.commit({...original,operations:[{type:'road_closure'}]});
+assert.equal(store.canRedo(),false);assert.equal(store.revision(),5);
+for(let i=0;i<70;i++)store.commit({...original,operations:[{value:i}]});
+let count=0;while(store.undo())count++;assert.equal(count,50);
+console.log('PASS: add, defensive copies, undo, redo, divergent redo invalidation, revision, bounded history');

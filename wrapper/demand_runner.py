@@ -4,13 +4,13 @@ R/Docker details behind a plain Python function call. Mirrors wrapper/runner.py
 risk regressing the other.
 """
 
-import subprocess
 import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
 from wrapper.docker_image import fingerprint_build_args, image_matches_source, source_fingerprint
+from wrapper.process_logging import announce, process_log_path, run_logged
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 IMAGE_TAG = "matsim-demand-generator"
@@ -56,22 +56,23 @@ def image_exists() -> bool:
     return image_matches_source(IMAGE_TAG, image_fingerprint())
 
 
-def build_image() -> None:
-    print(f"Building docker image '{IMAGE_TAG}' (first run only, this can take a few minutes)...")
-    subprocess.run(
+def build_image(*, log_path: Path | None = None) -> None:
+    announce(f"Building docker image '{IMAGE_TAG}' (first run only, this can take a few minutes)...")
+    run_logged(
         [
             "docker", "build", *fingerprint_build_args(image_fingerprint()),
             "-f", str(DOCKERFILE), "-t", IMAGE_TAG, str(PROJECT_ROOT),
         ],
         cwd=PROJECT_ROOT,
-        check=True,
+        log_path=log_path or process_log_path(OUTPUT_DIR, IMAGE_TAG + "_build"),
     )
 
 
 def run(config: DemandRunConfig) -> Path:
     """Runs the demand generator container and returns the output directory."""
+    log_path = process_log_path(OUTPUT_DIR, config.output_subdir)
     if not image_exists():
-        build_image()
+        build_image(log_path=log_path)
 
     DATA_DIR.mkdir(exist_ok=True)
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -91,7 +92,7 @@ def run(config: DemandRunConfig) -> Path:
         IMAGE_TAG,
     ]
 
-    print(f"Running demand generator (sample={config.sample_percent}%, numPlans={config.num_plans})... this can take a while.")
-    subprocess.run(cmd, check=True)
+    announce(f"Running demand generator (sample={config.sample_percent}%, numPlans={config.num_plans})... this can take a while.")
+    run_logged(cmd, log_path=log_path)
 
     return OUTPUT_DIR / config.output_subdir

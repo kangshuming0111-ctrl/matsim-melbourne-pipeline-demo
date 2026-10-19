@@ -1,4 +1,40 @@
+# 2026.10-p2 · 19 October 2026
+
+- Fix missing-value aggregation while preserving valid zero values and explicit unavailable results.
+- Add the DuckDB analysis layer, ten SQL queries, nine-run aggregate evidence and the detour investigation.
+- Add local Qwen3 read-only tool routing, explicit parameter constraints and bounded explanations.
+- Retain 30 development / 20 reserved evaluations, early failures, baseline comparison and frozen source hashes.
+- Publish a recruiter-facing static showcase and source download; live model inference remains local.
+- Preserve the original repository history and upstream notices. No native individual outputs, database, runtime or model weights are added.
+
+---
+
 # 更新记录
+
+## 2026.10-p2 · 2026-10-19
+
+- Added a real local Qwen3/Ollama assistant for reviewed run queries, metric comparisons, missing-value examples and bounded detour explanations.
+- Bound model plans to explicit parameters; kept calculations in read-only SQL/Python with run IDs, units, denominators and source hashes.
+- Added API/UI, evidence download, unavailable-model fallback and 33 unit tests. Full suite: 367 passed, one optional osmium skip.
+- Locked 30 development / 20 reserved questions; retained failed versions and deterministic baselines. Frozen holdout: 20/20, numeric 14/14; baseline also 20/20, with eight AI parameter corrections.
+- Added evaluation/interview materials and offline recorded-answer review. No new simulations, model training, external human review or deployment.
+
+## 2026.10-p1
+
+- Added optional DuckDB ingestion, source/schema fingerprints, transactional rollback and unchanged-run skipping.
+- Added ten SQL analyses, metric dictionary, 18 regression tests, source provenance and Python reconciliation.
+- Added a two-page detour explanation, Chinese analysis, English interview notes and an interactive offline SQL evidence section.
+- Retained all native run outputs; no new simulation or AI model.
+
+
+## 2026-10-18 — 求职展示版 2026.10-p0
+
+- 统一时间/距离/方式解析：缺失与非法值分别计数，真实零有效，无有效值返回 null。
+- 修复总体均值的有效样本加权、空值比较、旧结果回放、网页和报告显示。
+- 新增缺失值、异常值、零值、模式回退、不同分母和历史回放回归测试。
+- 提供离线英文展示、单页介绍、两分钟字幕演示、架构说明及九次实验的可追溯汇总。
+- 更新中英文说明，区分历史小场景、扩网十迭代案例和 Windows/WSL 短仿真。
+- 本版基于迁移快照制作；不重建或虚构早期 Git 历史。
 
 ## 2026-09-09 — 可交付性完善
 

@@ -1,0 +1,111 @@
+<!doctype html><meta charset="utf-8"><title>Plan check and compare regression</title>
+<h1>Plan workflow regression (mock API; no simulation)</h1><pre id="results">Running…</pre>
+<div id="fixture"></div>
+<script>
+const ids=['iflineBaselineSelect','planOperations','planAdd','planUndo','planRedo','planCheck',
+ 'planRunHint','iflineStudioRun','planConflictSummary','planConflicts','planReport',
+ 'planAcknowledgement','planAck','iflineStudioName','planPoints','planSaveStatus',
+ 'iflineNewRoadSpeed','iflineNewRoadLanes','iflineNewRoadCapacity','iflineNewRoadSnap',
+ 'iflineNewRoadBidirectional','iflineNewRoadBike','iflineNewRoadWalk'];
+ids.forEach(id=>{const el=document.createElement(id==='planAck'?'input':'div');el.id=id;el.value='';document.getElementById('fixture').append(el);});
+let iflineNewRoadPoints=[],iflineNewRoadDrawing=false,iflineStudioLoading=false,
+ iflineStudioMode='new_road',activeViewer={userData:{}},calls=[],runCount=0,pollCount=0,
+ conflictCount=2,checkError=null,runError=null,hold=null,buildingScreen=null;
+const memory=new Map();
+// Keep fixture state isolated from the user's saved application drafts/jobs.
+Object.defineProperty(window,'localStorage',{value:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)}});
+const RoadEditor={reset(){},remember(){}};
+function selectedIfLineLink(){return {id:'link1',modes:['car']};}
+function linkSupportsCar(link){return link?.modes.includes('car');}
+function currentNewRoadSnapTolerance(){return 120;}
+function refreshStudioRunButton(){cityPlanRefreshActions();}
+function renderNewRoadOverlay(){}
+function renderNewRoadDraft(){cityPlanPoints();refreshStudioRunButton();}
+function clearDisplayedResult(){}
+function setIfLineStatusMessage(){}
+function pollIfLineJob(){pollCount++;}
+function setIfLineStudioMode(mode){iflineStudioMode=mode;}
+const label=document.createElement('div');label.id='iflineStudioBaselineLabel';document.body.append(label);
+async function apiJson(url,options){
+ const body=JSON.parse(options.body);calls.push({url,body});
+ if(url.endsWith('/check')){
+   if(hold)await hold;if(checkError)throw Error(checkError);
+   return {baseline_run:body.baseline_run,token:'checked-token',plan:body.plan,roads:[],warnings:[],building_screen:buildingScreen,
+     conflicts:Array.from({length:conflictCount},(_,i)=>({label:`建筑${i+1}`,name:'',operation_ids:[1]}))};
+ }
+ runCount++;if(runError)throw Error(runError);return {job_id:'fixture-job',run_id:'fixture-run'};
+}
+</script>
+<script src="http://127.0.0.1:8000/static/plan-state.js"></script>
+<script src="http://127.0.0.1:8000/static/planning-ui.js?v=5"></script>
+<script>
+document.addEventListener('DOMContentLoaded',async()=>{
+ const checks=[],el=id=>document.getElementById(id);
+ function assert(ok,text){if(!ok)throw Error(text);checks.push(text);}
+ function draw(n=2){iflineNewRoadPoints=Array.from({length:n},(_,i)=>({x:i*100,y:0,height_m:0,snap_enabled:true}));renderNewRoadDraft();}
+ function fresh(){memory.clear();cityPlanSessions.clear();cityPlanStore=null;cityPlanBaseline='';
+   iflineNewRoadPoints=[];iflineStudioMode='new_road';activeViewer.userData.isDifferenceScene=false;
+   el('iflineBaselineSelect').value='baseline';el('iflineStudioName').value='Test proposal';
+   el('iflineNewRoadSpeed').value=40;el('iflineNewRoadLanes').value=2;el('iflineNewRoadCapacity').value=1000;
+   el('iflineNewRoadBidirectional').checked=true;cityPlanRefresh();}
+ try {
+  fresh();assert(el('planCheck').disabled&&el('planRunHint').textContent.includes('两个'),'Empty draft explains missing geometry');
+  draw(1);assert(el('planCheck').disabled&&el('planRunHint').textContent.includes('1 个点'),'Single point cannot silently submit an older plan');
+  draw();assert(!el('planCheck').disabled&&!el('iflineStudioRun').disabled,'Two map points immediately enable check and guided compare');
+  assert(cityPlanStore.read().operations.length===0,'Draft need not be manually added first');
+  await cityPlanRun();assert(calls.length===1&&calls[0].url.endsWith('/check')&&runCount===0,'First compare click checks only; never starts a run');
+  assert(cityPlanStore.read().operations.length===1&&iflineNewRoadPoints.length===0,'Visible draft automatically included exactly once');
+  assert(el('planConflictSummary').textContent.includes('2 个')&&el('planConflicts').querySelectorAll('button').length===2,'Conflict count and individually named buttons rendered');
+  let focused=null;cityPlanFocus=hit=>focused=hit.label;el('planConflicts').querySelector('button').click();
+  assert(focused==='建筑1','Conflict button invokes building navigation');
+  cityPlanMessage('下一次点击地图将移动点1');assert(el('planConflicts').children.length===2,'Editing instruction cannot erase conflict list');
+  assert(el('iflineStudioRun').disabled&&el('planRunHint').textContent.includes('2 个'),'Conflicts block run with explicit explanation');
+  await cityPlanRun();assert(runCount===0,'Direct run call also rejects unacknowledged conflicts');
+  el('planAck').checked=true;refreshStudioRunButton();assert(!el('iflineStudioRun').disabled&&cityPlanFlow().action==='run','Explicit acknowledgement enables comparison');
+  el('iflineStudioName').value='x';refreshStudioRunButton();assert(el('iflineStudioRun').disabled,'Short name explains and blocks submission');el('iflineStudioName').value='Test proposal';
+  await cityPlanCheck();assert(cityPlanStore.read().operations.length===1&&!el('planAck').checked,'Rechecking does not duplicate road and resets risk acknowledgement');
+  cityPlanEdit(0);iflineNewRoadPoints[1].x=180;await cityPlanCheck();
+  assert(cityPlanStore.read().operations.length===1&&cityPlanStore.read().operations[0].points[1][0]===180,'Checking edited route replaces old operation instead of appending');
+  el('planAck').checked=true;refreshStudioRunButton();runError='external runner unavailable';await cityPlanRun();
+  assert(!cityPlanBusy()&&pollCount===0&&el('planReport').textContent.includes('未启动'),'Failed submission remains failure, does not poll or show success');
+  runError=null;await cityPlanRun();const request=calls.at(-1).body;
+  assert(request.check_token==='checked-token'&&request.acknowledge_conflicts&&request.plan.operations.length===1,'Run submits precisely checked plan, token and explicit acknowledgement');
+  assert(pollCount===1&&cityPlanBusy(),'Accepted job starts polling and locks editing');
+  fresh();draw();conflictCount=0;await cityPlanCheck();
+  assert(el('planConflictSummary').textContent.includes('0 个')&&el('planAcknowledgement').hidden&&cityPlanFlow().action==='run','Successful zero-conflict result enables run without acknowledgement');
+  draw();refreshStudioRunButton();assert(cityPlanFlow().action==='check'&&el('planConflictSummary').textContent.includes('尚未检查'),'New draft marks previous result stale and cannot run it');
+  iflineNewRoadPoints=[];refreshStudioRunButton();assert(cityPlanFlow().action==='run'&&!el('planConflictSummary').textContent.includes('尚未检查'),'Discarding a new draft restores the checked-plan summary');draw();
+  checkError='endpoint disconnected';await cityPlanCheck();
+  assert(!cityPlanVerified&&el('planConflicts').children.length===0&&el('planConflictSummary').textContent.includes('不是 0'),'Failed check clears stale approval; unknown conflicts are not shown as zero');checkError=null;
+  fresh();draw();let release;hold=new Promise(r=>release=r);const pending=cityPlanCheck();
+  assert(el('planCheck').disabled&&el('iflineStudioRun').disabled&&cityPlanBusy(),'In-flight check locks actions');
+  const before=calls.length;await cityPlanCheck();assert(calls.length===before,'Double check cannot launch duplicate request');
+  el('iflineBaselineSelect').value='other-baseline';cityPlanEnsure();release();hold=null;await pending;
+  assert(!cityPlanVerified&&!cityPlanBusy()&&el('planConflictSummary').textContent.includes('尚未检查'),'Late check response cannot approve a different baseline');
+  fresh();draw();activeViewer.userData.isDifferenceScene=true;refreshStudioRunButton();
+  assert(el('planCheck').disabled&&el('planRunHint').textContent.includes('结果视图'),'Result view explicitly directs user back to baseline');
+  fresh();draw();conflictCount=0;await cityPlanCheck();
+  const decision=cityPlanFlow();
+  assert(decision.action==='run'&&decision.request.check_token==='checked-token','Only a run decision carries the checked request');
+  el('iflineStudioName').value='Changed after decision';
+  assert(decision.request.name==='Test proposal','Run request snapshots the validated name rather than rereading DOM later');
+  async function blocked(label){const before=calls.length;refreshStudioRunButton();const state=cityPlanFlow();
+    assert(state.action==='blocked'&&!state.request&&el('iflineStudioRun').disabled,label+' blocks both UI and request');
+    await cityPlanRun();assert(calls.length===before,label+' never calls check or run API');}
+  iflineStudioLoading=true;await blocked('Loading baseline');iflineStudioLoading=false;
+  el('iflineStudioName').value='x'.repeat(81);await blocked('Overlong name');el('iflineStudioName').value='Test proposal';
+  activeViewer.userData.isDifferenceScene=true;await blocked('Result view');activeViewer.userData.isDifferenceScene=false;
+  el('iflineBaselineSelect').value='not-yet-loaded';refreshStudioRunButton();
+  assert(cityPlanFlow().action==='blocked'&&!cityPlanFlow().request,'Baseline selector mismatch cannot expose a stale run request');el('iflineBaselineSelect').value='baseline';
+  draw();assert(cityPlanFlow().action==='check'&&!cityPlanFlow().request,'A pending draft exposes check, never an unchecked run request');
+  fresh();draw();conflictCount=1;
+  buildingScreen={status:'completed',counts:{validated_features:5622,corridor_features:3}};
+  await cityPlanCheck();
+  assert(el('planConflicts').textContent.includes('5622')&&el('planConflicts').textContent.includes('显示数量限制'),'Full-source screening scope is visible to the user');
+  assert(el('planConflictSummary').textContent.includes('1 个')&&el('planConflicts').querySelectorAll('button').length===1,'Source and corridor counts do not replace actual conflict count');
+  checkError='建筑源不可用';await cityPlanCheck();checkError=null;
+  assert(!el('planConflicts').textContent.includes('5622')&&el('planConflictSummary').textContent.includes('不是 0'),'Failed source check clears both previous scope claim and zero-conflict approval');
+  document.getElementById('results').textContent=`PASS: ${checks.length} checks\n`+checks.join('\n');
+ } catch(e){document.getElementById('results').textContent='FAIL: '+e.stack+'\n'+checks.join('\n');}
+});
+</script>

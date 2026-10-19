@@ -1,213 +1,54 @@
-# MATSim Melbourne Pipeline Demo
+# MATSim Melbourne: transport analytics and an evaluated AI assistant
 
-[![Python tests](https://github.com/kangshuming0111-ctrl/matsim-melbourne-pipeline-demo/actions/workflows/python-tests.yml/badge.svg)](https://github.com/kangshuming0111-ctrl/matsim-melbourne-pipeline-demo/actions/workflows/python-tests.yml)
+Personal integration project · Python, DuckDB/SQL, FastAPI, Docker, Qwen3/Ollama · Release 2026.10-p2
 
-[简体中文说明](README.zh-CN.md)
+Compare a road closure and proposed detour using traceable simulation results, then inspect the data through a bounded local AI assistant. Implementation and documentation were AI-assisted. MATSim supplies the simulation engine; Qwen is a pretrained model. See [contribution boundaries](docs/CONTRIBUTIONS.md).
 
-A local, auditable prototype that connects Melbourne transport data preparation,
-MATSim simulation, result analysis, and an interactive 3D replay behind one
-Python CLI and web interface.
+[**Open the public project showcase**](https://matsim-melbourne-p2.blueheron8.chatgpt.site) · [Source on GitHub](https://github.com/kangshuming0111-ctrl/matsim-melbourne-pipeline-demo)
 
-The current goal is deliberately narrow: run one small Melbourne CBD scenario
-end to end, preserve evidence for that run, and make the difference between a
-new simulation and a historical replay explicit. This repository does **not**
-claim that the model is calibrated, predictive, or validated against observed
-traffic conditions.
+The public page needs no login or installation. It includes interactive aggregate comparisons, the detour report and recorded AI evaluation examples. Live AI inference runs locally.
 
-![Verified result dashboard](docs/screenshots/dashboard.jpg)
+## Review in five minutes
 
-![Interactive 3D MATSim replay](docs/screenshots/three-d-replay.jpg)
+- Open [the interactive aggregate showcase](portfolio/index.html): experiment, data quality, SQL and recorded AI answers. No installation needed.
+- Read [the detour investigation](portfolio/reports/MATSim-detour-analysis.pdf) and [AI evaluation report](portfolio/reports/MATSim-ai-evaluation.html).
+- Inspect [SQL Q07](sql/queries/07_detour_usage.sql), [assistant implementation](wrapper/assistant.py), [33 assistant tests](tests/test_assistant.py) and [frozen evaluation](evals/assistant/holdout-freeze.json).
 
-## What is demonstrated
+## What is implemented
 
-```text
-OSM road network + ABS/VISTA-derived aggregate inputs
-  -> region-matched network and synthetic population
-  -> generated MATSim configuration
-  -> multi-modal MATSim run
-  -> events, plans, scores and CSV outputs
-  -> summary charts and interactive Three.js replay
-```
+- P0: shared valid/missing/invalid measurement handling; valid zero values remain included. A regression example of 90 seconds plus missing gives 90, not 45. The nine native runs have no missing measurements; this defect was verified with regression fixtures.
+- P1: DuckDB schema, transactional and idempotent imports, source hashes, and ten SQL analyses with CTEs, joins and window functions. The saved case contains 32,607 synthetic trip rows across nine runs, with repeated agents across scenarios and seeds.
+- P2: a local Qwen3 model selects typed, read-only tools. SQL/Python calculates numeric facts; deterministic constraints bind explicit parameters. Reviewed explanation blocks distinguish observations, hypotheses and limitations. Responses retain units, run IDs, source hashes and raw model plans.
 
-The fixed `cbd_small_v1` profile uses:
+## Findings and evaluation
 
-| Setting | Value |
-|---|---|
-| Region | `data/sample_region.geojson` (small Melbourne CBD polygon) |
-| Network / SA1 buffer | 500 m |
-| Demand sample | 5% |
-| Upstream `numPlans` parameter | 500 (not a hard cap on final agents) |
-| Demand seed | 4711 |
-| MATSim seed | 4711 |
-| Iterations | 0, 1 and 2 (three recorded iterations) |
-| CRS | EPSG:7899 |
-| Public transport | Teleported fixed-speed `pt`, not a full GTFS service model |
+The experiment uses 1,037 synthetic agents, three seeds, three scenarios and ten iterations per run. Closure increased mean car-trip time by 7.530 seconds; adding the detour increased it by a further 0.098 seconds, averaged across seeds. Six of 934 car trips used the new links in each detour run. The selected endpoint shortest free-flow cost was unchanged. These observations support limited uptake and route attractiveness; they do not isolate a causal mechanism. The proposed next experiment is a split-only control.
 
-Five additional inner-Melbourne presets remain experimental. The Greater
-Melbourne boundary is retained only as a large-network stress-test input; it is
-not presented as an end-to-end verified scenario.
+Final internal development evaluation: 30/30. Frozen reserved evaluation: 20/20, including 14 numerical questions. The deterministic baseline also passed 20/20. Eight AI questions required deterministic parameter corrections, and five refusals happened before any model call. These are guarded-system scores, not raw-model accuracy or independent external validation. Earlier failed development runs are retained. Model-invoked holdout latency: p50 7.184 seconds, p95 10.195 seconds, on the evaluated local CPU setup.
 
-## Upstream work and project contribution
+The P2 source package was verified with 368 Python tests: 367 passed and one optional osmium test skipped. Public packaging changes documentation and presentation only; frozen implementation hashes are checked again. See [release validation](validation/2026-10-19-p2.md) and [the GitHub release record](docs/PUBLIC_RELEASE.md).
 
-This repository integrates existing open-source MATSim Melbourne components:
+## Run the source locally
 
-- `vendor/network/`: upstream R network generation from OpenStreetMap.
-- `vendor/demand/`: upstream R synthetic population and activity-plan generation
-  using ABS/VISTA-derived inputs.
-- `vendor/baseline/`: upstream Java/Maven MATSim baseline scenario.
-
-The project-specific integration is mainly in:
-
-- `docker/`: pinned R and Java build/runtime environments.
-- `wrapper/`: Python CLI, FastAPI service, serial background jobs, preflight
-  checks, region matching, orchestration, analysis, provenance records and 3D
-  scene export.
-- `tests/`: Python reliability tests for validation, failure handling, run-ID
-  binding, input pinning and selected visualization logic.
-- targeted compatibility changes in vendored entry points for container paths,
-  deterministic seeds, Apple Silicon/Rosetta execution, parallel workers and
-  writable GDAL temporary storage.
-
-This is not a rewrite of MATSim or the upstream population model. The upstream
-projects and their retained notices remain visible so the integration work is
-not confused with upstream authorship.
-
-## Technology used
-
-- Python 3.10+: CLI, orchestration, FastAPI, job state, analysis and provenance.
-- R: upstream geospatial network and demand-generation workflows.
-- Java 11 and Maven: MATSim baseline runner.
-- Docker Desktop: isolated R and Java environments.
-- Three.js: local-browser 3D terrain, buildings, roads and vehicle replay.
-- GeoJSON, OSM PBF, GeoPackage/SQLite, CSV, XML and gzipped MATSim outputs.
-
-## Quick start
-
-### Prerequisites
-
-- Python 3.10 or newer.
-- Docker Desktop with at least 8 GB assigned; 24 GB or more is recommended.
-- The external data described in [Data preparation](docs/DATA_PREPARATION.md).
-
-On macOS, double-click `start.command`. It creates a project-local `.venv`,
-installs `requirements.txt` when needed, checks Docker, starts the service and
-opens the browser.
-
-The equivalent manual setup is:
+Use Python 3.10+; Windows users can run in Ubuntu/WSL2. From this directory:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -r requirements.txt
-python3 -m wrapper.cli doctor
-python3 -m uvicorn wrapper.api:app --host 127.0.0.1 --port 8000
+python -m pip install -r requirements.txt -r requirements-analytics.txt
+python -m unittest discover -s tests -v
+python -m scripts.assistant '4711 baseline car mean time' --engine deterministic
+python -m wrapper.server --no-browser
 ```
 
-Open <http://127.0.0.1:8000/>. API documentation is available at
-<http://127.0.0.1:8000/docs>.
+The local UI runs at http://127.0.0.1:8000/assistant. Without a native analytics database, the assistant explicitly uses the reviewed aggregate snapshot. For model inference, install Ollama and the evaluated `qwen3:4b-instruct-2507-q4_K_M` model separately; see [AI setup and scope](docs/AI_ASSISTANT.md). Model weights and runtime binaries are excluded. The website shows saved answers and never starts the model or a simulation.
 
-Run the fixed demo from the terminal with:
+Docker and external inputs are needed for new simulations; see [run guide](docs/RUNNING.md), [data preparation](docs/DATA_PREPARATION.md) and [SQL guide](docs/ANALYTICS.md). The repository does not bundle native individual trip records or the analytical database. A fresh source download can inspect the reviewed aggregate results; it cannot regenerate external data without those additional prerequisites.
 
-```bash
-python3 -m wrapper.cli demo
-```
+## Boundaries and attribution
 
-Each execution receives a unique run ID and does not overwrite previous output.
+This is a local prototype plus a static public showcase. It does not claim observed-traffic calibration, policy benefit, statistical significance, production AI hosting, load testing, model training, general RAG, unrestricted text-to-SQL or independent user evaluation. The original holdout has already been opened; future model/prompt changes require a new unseen evaluation set.
 
-## Auditable run records
+Upstream notices and vendor licensing files are retained. The repository update preserves the existing Git history. Downloadable source ZIPs are snapshots with file-level SHA-256 manifests. Historical documentation and validation records describe their respective earlier releases. The recorded video is the earlier P0 tour; SQL and AI are shown in the current page tabs.
 
-For a run named `<run_id>`, the pipeline writes:
-
-```text
-output/<run_id>_network/
-output/<run_id>_demand/
-output/<run_id>_sim_config/config.xml
-output/<run_id>_sim/
-output/run_records/<run_id>/run_manifest.json
-output/run_records/<run_id>/pipeline.log
-```
-
-The manifest records the code state, configuration, random seeds, non-sensitive
-input metadata, dependency-file fingerprints, Docker version and image IDs,
-start/finish times, stage status, log locations, result locations, and final
-artifact checks. It intentionally excludes environment variables, host names,
-user names, passwords, tokens and raw data contents.
-
-The web UI clears any displayed result before a new run starts. A failed job has
-no result payload, a result with the wrong run ID is rejected, and failed run
-records are not shown as completed. Historical results are labelled
-**Existing result replay — not a newly executed simulation**.
-
-## Verified local execution
-
-On 9 September 2026 (Melbourne time), the fixed profile was rerun into a new
-output directory:
-
-- 684 network nodes and 2,464 links.
-- 1,037 synthetic agents and 3,623 trips.
-- three MATSim score rows for iterations 0, 1 and 2.
-- all 16 required artifacts present and non-empty.
-- normal MATSim shutdown, with no unexpected-termination marker.
-- elapsed time: approximately 14 minutes 46 seconds, including a required image
-  rebuild and Maven dependency retrieval.
-
-Only the privacy-reviewed summary is published; raw inputs and full simulation
-outputs are not. See [Verified run and test summary](docs/VERIFIED_RUN.md).
-
-## Tests
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-The latest clean project-local environment run discovered 22 tests: 22 passed,
-0 failed, 0 errors and 0 skipped. The tests cover API input restrictions,
-missing-data preflight behavior, durable job history, external-stage failure,
-run/result identity checks, failed-run filtering, exact OSM input selection,
-GDAL temporary-directory configuration, Docker source fingerprints,
-deterministic seed propagation, and selected 3D style helpers.
-
-The legacy upstream R demand tests are not all green in the current pinned
-container: after supplying the CRS expected by the fixture, one byte-level
-`plan.csv` MD5 snapshot still differs and four plotting warnings remain. The
-snapshot was not deleted or regenerated. See the public verification summary
-for the exact distinction between software validation and model validation.
-
-## Repository layout
-
-```text
-wrapper/       Python product layer and Three.js web interface
-docker/        Docker build configurations
-vendor/        retained upstream R/Java projects and their tests/licenses
-tests/         project-specific Python tests
-scripts/       optional one-off data preparation utilities
-data/          tracked region boundaries only; large runtime data is ignored
-docs/          screenshots and privacy-reviewed validation notes
-output/        generated locally and ignored by Git
-```
-
-## Known limitations
-
-- Only `cbd_small_v1` has a fresh, complete local validation record.
-- The 69.1% network/demand coverage value is a bounding-box diagnostic, not a
-  strict polygon-containment or model-quality measure.
-- The three-iteration demo does not establish convergence.
-- There is no comparison with observed traffic counts, predictive-accuracy
-  result, travel-time improvement or real-world transport impact.
-- Full GTFS transit vehicles, stops and timetables are not integrated.
-- Large source datasets still require manual preparation and are not distributed
-  in this repository.
-- The 3D building categories, colours and some roof forms aid legibility; they
-  are not a photogrammetric reconstruction of every building.
-- The web UI is a local prototype, not a production service or desktop installer.
-
-## Data and licensing
-
-Large OSM, ABS/VISTA-derived, terrain, landmark-cache and simulation-output files
-are intentionally excluded. Follow [docs/DATA_PREPARATION.md](docs/DATA_PREPARATION.md)
-and the upstream documentation under `vendor/*/data/`.
-
-Vendored components retain their original license files or declarations. See
-[Third-party notices](THIRD_PARTY_NOTICES.md) for source and license details.
-No new top-level license is granted for the integration code in this snapshot;
-add one only after the repository owner has chosen the intended reuse terms.
+[Chinese historical project guide](README.zh.md) · [development and measurement contract](docs/DEVELOPMENT.md) · [SQL interview notes](docs/INTERVIEW_P1.md) · [AI interview notes](docs/AI_INTERVIEW.md)

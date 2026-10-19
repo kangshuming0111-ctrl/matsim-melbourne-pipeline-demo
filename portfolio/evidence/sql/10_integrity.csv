@@ -1,0 +1,9 @@
+check_name,issue_count
+case_plans_mismatch,0
+incomplete_seed_triplet,0
+invalid_distance_semantics,0
+invalid_time_semantics,0
+missing_core_source_hash,0
+orphan_trips,0
+trip_row_count_mismatch,0
+unflagged_duplicate_keys,0

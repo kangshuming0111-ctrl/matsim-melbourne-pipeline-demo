@@ -1,0 +1,945 @@
+--- a/wrapper/analyze.py
++++ b/wrapper/analyze.py
+@@ -10,38 +10,36 @@
+ 
+ import csv
+ import gzip
+-import statistics
+ from pathlib import Path
++
++from wrapper.measurements import measurement_stats, nonnegative_number, parse_time, trip_mode
+ 
+ PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ OUTPUT_DIR = PROJECT_ROOT / "output"
+ 
+ 
+-def _parse_hms(value: str) -> float:
+-    """'00:40:59' -> seconds. Returns 0 for empty/malformed values."""
+-    parts = value.split(":")
+-    if len(parts) != 3:
+-        return 0.0
+-    h, m, s = parts
+-    return int(h) * 3600 + int(m) * 60 + float(s)
++# Kept as an alias for callers; unavailable measurements now return None.
++_parse_hms = parse_time
+ 
+ 
+-def _format_seconds(seconds: float) -> str:
++def _format_seconds(seconds: float | None) -> str:
++    if seconds is None:
++        return "无有效数据"
++    if seconds < 60:
++        return f"{seconds:g} 秒"
+     minutes = seconds / 60
+-    if minutes < 60:
+-        return f"{minutes:.0f} 分钟"
+-    return f"{minutes / 60:.1f} 小时"
++    return f"{minutes:.1f} 分钟" if minutes < 60 else f"{minutes / 60:.1f} 小时"
+ 
+ 
+ def _read_trips(sim_dir: Path) -> list[dict]:
+     path = sim_dir / "output_trips.csv.gz"
+-    with gzip.open(path, "rt") as f:
++    with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as f:
+         return list(csv.DictReader(f, delimiter=";"))
+ 
+ 
+ def _read_person_count(sim_dir: Path) -> int:
+     path = sim_dir / "output_persons.csv.gz"
+-    with gzip.open(path, "rt") as f:
++    with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as f:
+         return sum(1 for _ in csv.DictReader(f, delimiter=";"))
+ 
+ 
+@@ -62,16 +60,20 @@
+     score_rows = _read_scorestats(sim_dir)
+ 
+     by_mode: dict[str, list[dict]] = {}
++    mode_quality = {"unknown": 0, "fallback": 0}
+     for trip in trips:
+-        mode = trip["modes"] or "(未知)"
++        mode, fallback = trip_mode(trip)
++        mode_quality["unknown"] += mode is None
++        mode_quality["fallback"] += fallback
++        mode = mode or "(未知)"
+         by_mode.setdefault(mode, []).append(trip)
+ 
+     total_trips = len(trips)
+     mode_rows = []
+     for mode, rows in sorted(by_mode.items(), key=lambda kv: -len(kv[1])):
+         share = len(rows) / total_trips if total_trips else 0
+-        avg_time = statistics.mean(_parse_hms(r["trav_time"]) for r in rows)
+-        avg_dist = statistics.mean(float(r["traveled_distance"] or 0) for r in rows)
++        avg_time, time_quality = measurement_stats((r.get("trav_time") for r in rows), parse_time)
++        avg_dist, distance_quality = measurement_stats((r.get("traveled_distance") for r in rows), nonnegative_number)
+         mode_rows.append({
+             "mode": mode,
+             "count": len(rows),
+@@ -79,12 +81,23 @@
+             "avg_time_seconds": avg_time,
+             "avg_time_label": _format_seconds(avg_time),
+             "avg_distance_m": avg_dist,
++            "time_quality": time_quality,
++            "distance_quality": distance_quality,
+         })
+ 
+     first_iter, first_score = score_rows[0]
+     last_iter, last_score = score_rows[-1]
+ 
+     return {
++        "summary_schema_version": 2,
++        "measurement_policy": "Available finite nonnegative measurements only; missing/invalid excluded separately per metric; real zero retained; empty means null.",
++        "mode_basis": "main_mode, otherwise a single recognized modes value; ambiguous/unsupported modes counted as unknown",
++        "units": {"avg_time_seconds": "seconds", "avg_distance_m": "metres"},
++        "data_quality": {
++            "time": {key: sum(row["time_quality"][key] for row in mode_rows) for key in ("valid", "missing", "invalid")},
++            "distance": {key: sum(row["distance_quality"][key] for row in mode_rows) for key in ("valid", "missing", "invalid")},
++            "mode": mode_quality,
++        },
+         "sim_output_subdir": sim_output_subdir,
+         "sim_dir": str(sim_dir),
+         "person_count": person_count,
+@@ -118,10 +131,13 @@
+     lines.append("")
+     lines.append("## 出行方式占比")
+     lines.append("")
+-    lines.append("| 方式 | 次数 | 占比 | 平均耗时 | 平均距离 |")
+-    lines.append("|---|---|---|---|---|")
++    lines.append("均值按各指标有效记录计算；缺失和非法值不计为零。有效/缺失/非法数量分别列出。")
++    lines.append("| 方式 | 次数 | 占比 | 平均耗时 | 平均距离 | 时间有效/缺失/非法 | 距离有效/缺失/非法 |")
++    lines.append("|---|---|---|---|---|---|---|")
+     for row in data["mode_rows"]:
+-        lines.append(f"| {row['mode']} | {row['count']} | {row['share']:.1%} | {row['avg_time_label']} | {row['avg_distance_m']:.0f} 米 |")
++        distance = "无有效数据" if row["avg_distance_m"] is None else f"{row['avg_distance_m']:.0f} 米"
++        counts = ["/".join(str(row[field][key]) for key in ("valid", "missing", "invalid")) for field in ("time_quality", "distance_quality")]
++        lines.append(f"| {row['mode']} | {row['count']} | {row['share']:.1%} | {row['avg_time_label']} | {distance} | {counts[0]} | {counts[1]} |")
+     lines.append("")
+     lines.append("## 图表")
+     lines.append("")
+@@ -132,5 +148,5 @@
+ 
+     content = "\n".join(lines)
+     summary_path = OUTPUT_DIR / sim_output_subdir / "summary.md"
+-    summary_path.write_text(content)
++    summary_path.write_text(content, encoding="utf-8")
+     return summary_path
+--- a/wrapper/ifline.py
++++ b/wrapper/ifline.py
+@@ -577,16 +577,29 @@
+     return changed
+ 
+ 
+-def _overall_average(summary: dict[str, Any], field: str) -> float:
+-    count = sum(row["count"] for row in summary["mode_rows"])
++def _valid_count(row: dict, field: str) -> int:
++    quality = "time_quality" if field == "avg_time_seconds" else "distance_quality"
++    # Older recorded summaries have no per-metric counts. Retain their original weighting.
++    if row.get(field) is None:
++        return 0
++    return row.get(quality, {}).get("valid", row.get("count", 0))
++
++
++def _overall_average(summary: dict[str, Any], field: str) -> float | None:
++    rows = summary["mode_rows"]
++    count = sum(_valid_count(row, field) for row in rows)
+     if not count:
+-        return 0.0
+-    return sum(row["count"] * row[field] for row in summary["mode_rows"]) / count
+-
+-
+-def _relative_delta_percent(baseline: float, proposal: float) -> float | None:
+-    """Return a signed percent change without inventing a value for zero bases."""
+-    if abs(baseline) < 1e-12:
++        return None
++    return sum(_valid_count(row, field) * row[field] for row in rows if _valid_count(row, field)) / count
++
++
++def _difference(baseline: float | None, proposal: float | None) -> float | None:
++    return None if baseline is None or proposal is None else proposal - baseline
++
++
++def _relative_delta_percent(baseline: float | None, proposal: float | None) -> float | None:
++    """Unavailable measurements and zero bases do not define a percentage."""
++    if baseline is None or proposal is None or abs(baseline) < 1e-12:
+         return None
+     return ((proposal - baseline) / abs(baseline)) * 100
+ 
+@@ -602,10 +615,10 @@
+         alt_share = float(alt.get("share", 0))
+         base_count = int(base.get("count", 0))
+         alt_count = int(alt.get("count", 0))
+-        base_time = float(base.get("avg_time_seconds", 0))
+-        alt_time = float(alt.get("avg_time_seconds", 0))
+-        base_distance = float(base.get("avg_distance_m", 0))
+-        alt_distance = float(alt.get("avg_distance_m", 0))
++        base_time = base.get("avg_time_seconds")
++        alt_time = alt.get("avg_time_seconds")
++        base_distance = base.get("avg_distance_m")
++        alt_distance = alt.get("avg_distance_m")
+         mode_changes.append({
+             "mode": mode,
+             "baseline_count": base_count,
+@@ -616,11 +629,15 @@
+             "share_delta_points": (alt_share - base_share) * 100,
+             "baseline_avg_time_seconds": base_time,
+             "proposal_avg_time_seconds": alt_time,
+-            "avg_time_delta_seconds": alt_time - base_time,
++            "avg_time_delta_seconds": _difference(base_time, alt_time),
++            "baseline_time_valid_count": _valid_count(base, "avg_time_seconds"),
++            "proposal_time_valid_count": _valid_count(alt, "avg_time_seconds"),
++            "baseline_distance_valid_count": _valid_count(base, "avg_distance_m"),
++            "proposal_distance_valid_count": _valid_count(alt, "avg_distance_m"),
+             "avg_time_delta_percent": _relative_delta_percent(base_time, alt_time),
+             "baseline_avg_distance_m": base_distance,
+             "proposal_avg_distance_m": alt_distance,
+-            "avg_distance_delta_m": alt_distance - base_distance,
++            "avg_distance_delta_m": _difference(base_distance, alt_distance),
+         })
+     baseline_avg_time = _overall_average(baseline, "avg_time_seconds")
+     proposal_avg_time = _overall_average(proposal, "avg_time_seconds")
+@@ -629,6 +646,9 @@
+     return {
+         "baseline": {
+             "run_name": baseline["sim_output_subdir"],
++            "time_valid_count": sum(_valid_count(row, "avg_time_seconds") for row in baseline["mode_rows"]),
++            "distance_valid_count": sum(_valid_count(row, "avg_distance_m") for row in baseline["mode_rows"]),
++            "data_quality": baseline.get("data_quality"),
+             "person_count": baseline["person_count"],
+             "total_trips": baseline["total_trips"],
+             "avg_trip_time_seconds": baseline_avg_time,
+@@ -637,6 +657,9 @@
+         },
+         "proposal": {
+             "run_name": proposal["sim_output_subdir"],
++            "time_valid_count": sum(_valid_count(row, "avg_time_seconds") for row in proposal["mode_rows"]),
++            "distance_valid_count": sum(_valid_count(row, "avg_distance_m") for row in proposal["mode_rows"]),
++            "data_quality": proposal.get("data_quality"),
+             "person_count": proposal["person_count"],
+             "total_trips": proposal["total_trips"],
+             "avg_trip_time_seconds": proposal_avg_time,
+@@ -644,9 +667,9 @@
+             "last_score": proposal["last_score"],
+         },
+         "delta": {
+-            "avg_trip_time_seconds": proposal_avg_time - baseline_avg_time,
++            "avg_trip_time_seconds": _difference(baseline_avg_time, proposal_avg_time),
+             "avg_trip_time_percent": _relative_delta_percent(baseline_avg_time, proposal_avg_time),
+-            "avg_trip_distance_m": proposal_avg_distance - baseline_avg_distance,
++            "avg_trip_distance_m": _difference(baseline_avg_distance, proposal_avg_distance),
+             "avg_trip_distance_percent": _relative_delta_percent(
+                 baseline_avg_distance, proposal_avg_distance
+             ),
+--- a/wrapper/impact.py
++++ b/wrapper/impact.py
+@@ -23,6 +23,7 @@
+ 
+ from wrapper.ifline import resolve_run_assets
+ from wrapper.provenance import file_evidence
++from wrapper.measurements import parse_time as _time, trip_mode as _trip_mode
+ 
+ __all__ = ["analyze_impact"]
+ _MODES = {"car", "bike", "walk", "pt", "all"}
+@@ -55,28 +56,6 @@
+     if not math.isfinite(result):
+         raise ValueError("Expected a finite number")
+     return result
+-
+-
+-def _time(value: str | None) -> float | None:
+-    """MATSim hours are not clock hours: 30:00:00 and fractional seconds are valid."""
+-    try:
+-        if value is None or not value.strip():
+-            return None
+-        parts = value.strip().split(":")
+-        if len(parts) == 1:
+-            seconds = _number(parts[0])
+-        elif len(parts) == 3:
+-            hours, minutes, seconds_part = map(_number, parts)
+-            if hours < 0 or not hours.is_integer() or not minutes.is_integer():
+-                return None
+-            if not 0 <= minutes < 60 or not 0 <= seconds_part < 60:
+-                return None
+-            seconds = hours * 3600 + minutes * 60 + seconds_part
+-        else:
+-            return None
+-        return seconds if math.isfinite(seconds) and seconds >= 0 else None
+-    except (ValueError, TypeError, OverflowError):
+-        return None
+ 
+ 
+ def _open(path: Path, *, text: bool = False):
+@@ -231,15 +210,8 @@
+                 quality["duplicate_rows"] += 1
+             keys.add(key)
+             departure, duration = _time(row.get("dep_time")), _time(row.get("trav_time"))
+-            trip_mode = (row.get(mode_field) or "").strip()
+-            # Some MATSim exports include an entirely empty main_mode column.
+-            # A single explicit modes value supplies evidence; mixed modes do not.
+-            if not trip_mode and mode_field == "main_mode":
+-                trip_mode = (row.get("modes") or "").strip()
+-                if trip_mode in _MODES - {"all"}:
+-                    quality["mode_fallback_rows"] += 1
+-            if trip_mode not in _MODES - {"all"}:
+-                trip_mode = None
++            trip_mode, fallback = _trip_mode(row)
++            quality["mode_fallback_rows"] += fallback
+             quality["invalid_departure_rows"] += departure is None
+             quality["invalid_travel_time_rows"] += duration is None
+             quality["invalid_mode_rows"] += trip_mode is None
+--- /dev/null
++++ b/wrapper/measurements.py
+@@ -0,0 +1,59 @@
++"""Shared trip measurement rules for summaries and evidence-checked impact analysis."""
++
++import math
++
++TRIP_MODES = frozenset({"car", "bike", "walk", "pt"})
++
++
++def nonnegative_number(value: object) -> float | None:
++    """Missing, malformed, negative and non-finite measurements are unavailable."""
++    try:
++        if isinstance(value, bool):
++            return None
++        number = float(value)
++        return number if math.isfinite(number) and number >= 0 else None
++    except (ValueError, TypeError, OverflowError):
++        return None
++
++
++def parse_time(value: str | None) -> float | None:
++    """Seconds or H+:MM:SS; hours may exceed 24 and seconds may be fractional."""
++    if not isinstance(value, str) or not value.strip():
++        return None
++    parts = value.strip().split(":")
++    if len(parts) == 1:
++        return nonnegative_number(parts[0])
++    if len(parts) != 3:
++        return None
++    hours, minutes, seconds = (nonnegative_number(part) for part in parts)
++    if None in (hours, minutes, seconds):
++        return None
++    if not hours.is_integer() or not minutes.is_integer() or minutes >= 60 or seconds >= 60:
++        return None
++    return nonnegative_number(hours * 3600 + minutes * 60 + seconds)
++
++
++def trip_mode(row: dict) -> tuple[str | None, bool]:
++    """Prefer main_mode; only a single recognized fallback mode is unambiguous."""
++    primary = (row.get("main_mode") or "").strip()
++    candidate = primary or (row.get("modes") or "").strip()
++    mode = candidate if candidate in TRIP_MODES else None
++    fallback = "main_mode" in row and not primary and mode is not None
++    return mode, fallback
++
++
++def measurement_stats(values, parser) -> tuple[float | None, dict]:
++    import statistics
++    valid = []
++    quality = {"valid": 0, "missing": 0, "invalid": 0}
++    for value in values:
++        if value is None or (isinstance(value, str) and not value.strip()):
++            quality["missing"] += 1
++            continue
++        parsed = parser(value)
++        if parsed is None:
++            quality["invalid"] += 1
++        else:
++            valid.append(parsed)
++    quality["valid"] = len(valid)
++    return (statistics.mean(valid) if valid else None), quality
+--- a/wrapper/runs.py
++++ b/wrapper/runs.py
+@@ -167,7 +167,21 @@
+         summary["ifline_scenario_url"] = f"/results/ifline/{base_name}/scenario.json"
+         comparison = ifline.get("comparison")
+         if isinstance(comparison, dict):
+-            summary["ifline_comparison"] = comparison
++            summary["recorded_ifline_comparison"] = comparison
++            # Recompute summary metrics for replay; never overwrite historical evidence.
++            # Import locally because ifline uses this module's catalogue helpers.
++            from wrapper.ifline import compare_summaries
++            try:
++                baseline_name = validate_run_name(ifline.get("baseline_run", ""))
++                baseline_record = _run_record(OUTPUT_DIR / baseline_name)
++                if baseline_record and baseline_record.get("status") != "completed":
++                    raise ValueError("Baseline is not completed")
++                current = compare_summaries(compute_summary_data(baseline_name), summary)
++            except (OSError, ValueError, KeyError, TypeError) as error:
++                summary["comparison_unavailable_reason"] = f"Unable to recompute baseline summary: {error}"
++            else:
++                summary["ifline_comparison"] = {**comparison, **current}
++                summary["ifline_comparison"]["summary_source"] = "Current raw trip tables, summary schema v2; recorded network evidence retained"
+             summary["ifline_comparison_url"] = f"/results/ifline/{base_name}/comparison.json"
+     refreshed = refreshed_landmark_scene(scene)
+     if refreshed:
+--- a/wrapper/static/index.html
++++ b/wrapper/static/index.html
+@@ -955,13 +955,19 @@
+   }
+ }
+ 
++function hasMeasurement(value) {
++  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
++}
++
+ function formatSigned(value, digits = 1, suffix = '') {
++  if (!hasMeasurement(value)) return '无有效数据';
+   const number = Number(value || 0);
+   const sign = number > 0.000001 ? '+' : number < -0.000001 ? '−' : '';
+   return `${sign}${Math.abs(number).toFixed(digits)}${suffix}`;
+ }
+ 
+ function formatTimeDelta(seconds) {
++  if (!hasMeasurement(seconds)) return '无有效数据';
+   const absolute = Math.abs(Number(seconds || 0));
+   if (absolute >= 60) return formatSigned(Number(seconds) / 60, 1, ' 分钟');
+   if (absolute > 0 && absolute < 10) return formatSigned(Number(seconds), 1, ' 秒');
+@@ -969,6 +975,7 @@
+ }
+ 
+ function deltaClass(value, lowerIsBetter = true) {
++  if (!hasMeasurement(value)) return 'delta-neutral';
+   const number = Number(value || 0);
+   if (Math.abs(number) < 0.000001) return 'delta-neutral';
+   const better = lowerIsBetter ? number < 0 : number > 0;
+@@ -976,6 +983,7 @@
+ }
+ 
+ function formatDurationValue(seconds) {
++  if (!hasMeasurement(seconds)) return '无有效数据';
+   const value = Math.max(0, Number(seconds || 0));
+   if (value >= 3600) return `${(value / 3600).toFixed(1)} 小时`;
+   if (value >= 60) {
+@@ -988,11 +996,13 @@
+ }
+ 
+ function formatDistanceValue(metres) {
++  if (!hasMeasurement(metres)) return '无有效数据';
+   const value = Math.max(0, Number(metres || 0));
+   return value >= 1000 ? `${(value / 1000).toFixed(2)} 公里` : `${value.toFixed(0)} 米`;
+ }
+ 
+ function relativeDeltaPercent(baseline, proposal) {
++  if (!hasMeasurement(baseline) || !hasMeasurement(proposal)) return null;
+   const base = Number(baseline || 0);
+   if (Math.abs(base) < 0.000001) return null;
+   return ((Number(proposal || 0) - base) / Math.abs(base)) * 100;
+@@ -1048,8 +1058,11 @@
+ 
+ function comparisonVerdict(comparison) {
+   const car = (comparison.mode_changes || []).find(row => row.mode === 'car');
+-  const baseline = Number(car ? car.baseline_avg_time_seconds : comparison.baseline.avg_trip_time_seconds || 0);
+-  const proposal = Number(car ? car.proposal_avg_time_seconds : comparison.proposal.avg_trip_time_seconds || 0);
++  const baseline = car ? car.baseline_avg_time_seconds : comparison.baseline.avg_trip_time_seconds;
++  const proposal = car ? car.proposal_avg_time_seconds : comparison.proposal.avg_trip_time_seconds;
++  if (!hasMeasurement(baseline) || !hasMeasurement(proposal)) {
++    return {tone:'neutral', icon:'—', title:'缺少有效测量，无法比较', badge:'无有效数据', baseline, proposal, delta:null, percent:null};
++  }
+   const delta = proposal - baseline;
+   const percent = car && car.avg_time_delta_percent !== undefined
+     ? car.avg_time_delta_percent : relativeDeltaPercent(baseline, proposal);
+@@ -2201,8 +2214,8 @@
+   metrics.innerHTML = '';
+   appendComparisonMetric(metrics, {
+     label:'全方式平均出行时间', hint:'每次出行',
+-    baseline:Number(baseline.avg_trip_time_seconds || 0), proposal:Number(proposal.avg_trip_time_seconds || 0),
+-    delta:Number(delta.avg_trip_time_seconds || 0),
++    baseline:baseline.avg_trip_time_seconds, proposal:proposal.avg_trip_time_seconds,
++    delta:delta.avg_trip_time_seconds,
+     percent:delta.avg_trip_time_percent !== undefined && delta.avg_trip_time_percent !== null
+       ? delta.avg_trip_time_percent
+       : relativeDeltaPercent(baseline.avg_trip_time_seconds, proposal.avg_trip_time_seconds),
+@@ -2211,8 +2224,8 @@
+   if (carChange) {
+     appendComparisonMetric(metrics, {
+       label:'汽车平均出行时间', hint:'道路方案核心指标',
+-      baseline:Number(carChange.baseline_avg_time_seconds || 0), proposal:Number(carChange.proposal_avg_time_seconds || 0),
+-      delta:Number(carChange.avg_time_delta_seconds || 0),
++      baseline:carChange.baseline_avg_time_seconds, proposal:carChange.proposal_avg_time_seconds,
++      delta:carChange.avg_time_delta_seconds,
+       percent:carChange.avg_time_delta_percent !== undefined && carChange.avg_time_delta_percent !== null
+         ? carChange.avg_time_delta_percent
+         : relativeDeltaPercent(carChange.baseline_avg_time_seconds, carChange.proposal_avg_time_seconds),
+@@ -2221,8 +2234,8 @@
+   }
+   appendComparisonMetric(metrics, {
+     label:'全方式平均出行距离', hint:'绕行与路径变化',
+-    baseline:Number(baseline.avg_trip_distance_m || 0), proposal:Number(proposal.avg_trip_distance_m || 0),
+-    delta:Number(delta.avg_trip_distance_m || 0),
++    baseline:baseline.avg_trip_distance_m, proposal:proposal.avg_trip_distance_m,
++    delta:delta.avg_trip_distance_m,
+     percent:delta.avg_trip_distance_percent !== undefined && delta.avg_trip_distance_percent !== null
+       ? delta.avg_trip_distance_percent
+       : relativeDeltaPercent(baseline.avg_trip_distance_m, proposal.avg_trip_distance_m),
+@@ -2394,7 +2407,8 @@
+     ? ' · 固定演示配置'
+     : data.validation_status === 'experimental_counterfactual' ? ' · 实验性反事实' : '';
+   document.getElementById('resultRunName').textContent = `${sourceLabel}${validationLabel} · ${data.run_id}` +
+-    (data.visualization_note ? ` · ${data.visualization_note}` : '');
++    (data.visualization_note ? ` · ${data.visualization_note}` : '') +
++    (data.comparison_unavailable_reason ? ' · 对照摘要无法重算，未显示旧统计' : '');
+   const recordLink = document.getElementById('runRecordLink');
+   if (data.run_record_url) {
+     recordLink.href = data.run_record_url;
+@@ -2408,9 +2422,20 @@
+   tbody.innerHTML = '';
+   for (const row of data.mode_rows) {
+     const tr = document.createElement('tr');
+-    tr.innerHTML = `<td>${row.mode}</td><td>${row.count}</td>` +
+-      `<td>${(row.share * 100).toFixed(1)}%</td>` +
+-      `<td>${row.avg_time_label}</td><td>${row.avg_distance_m.toFixed(0)} 米</td>`;
++    for (const value of [row.mode, row.count, `${(row.share * 100).toFixed(1)}%`, row.avg_time_label, formatDistanceValue(row.avg_distance_m)]) {
++      const td = document.createElement('td');
++      td.textContent = value;
++      tr.appendChild(td);
++    }
++    for (const [field, index] of [['time_quality', 3], ['distance_quality', 4]]) {
++      if (row[field]) {
++        const q = row[field];
++        const note = document.createElement('small');
++        note.style.display = 'block';
++        note.textContent = `有效 ${q.valid} / 缺失 ${q.missing} / 非法 ${q.invalid}`;
++        tr.children[index].appendChild(note);
++      }
++    }
+     tbody.appendChild(tr);
+   }
+   renderIfLineComparison(data);
+--- /dev/null
++++ b/tests/browser/measurement_quality.cjs
+@@ -0,0 +1,33 @@
++const {chromium}=require('playwright');
++const assert=require('node:assert/strict');
++(async()=>{
++ const browser=await chromium.launch({headless:true});
++ try {
++ const page=await browser.newPage({viewport:{width:1440,height:1000}});
++ await page.goto(process.argv[2]||'http://127.0.0.1:8000/',{waitUntil:'networkidle'});
++ const actual=await page.evaluate(()=>({
++   nullDuration:formatDurationValue(null),nullDistance:formatDistanceValue(null),
++   nullDelta:formatTimeDelta(null),zeroDuration:formatDurationValue(0),
++   nullPercent:relativeDeltaPercent(90,null),zeroPercent:relativeDeltaPercent(0,90),
++   neutral:deltaClass(null),
++   verdict:comparisonVerdict({mode_changes:[],baseline:{avg_trip_time_seconds:90},proposal:{avg_trip_time_seconds:null}})
++ }));
++ assert.equal(actual.nullDuration,'无有效数据');assert.equal(actual.nullDistance,'无有效数据');
++ assert.equal(actual.nullDelta,'无有效数据');assert.equal(actual.zeroDuration,'0 秒');
++ assert.equal(actual.nullPercent,null);assert.equal(actual.zeroPercent,null);
++ assert.equal(actual.neutral,'delta-neutral');assert.match(actual.verdict.title,/无法比较/);
++ // This is a renderer fixture, not a claimed simulation result. Isolate unrelated
++ // 3D/workbench services so the actual production table renderer is exercised.
++ await page.evaluate(async()=>{
++  renderIfLineComparison=()=>{};ImpactWorkbench.open=()=>{};PlanningCases.open=()=>{};
++  await showResult({run_id:'measurement_renderer_fixture',sim_output_subdir:'fixture_sim',
++   person_count:2,total_trips:2,num_iterations:1,first_iteration:0,last_iteration:0,first_score:0,last_score:0,
++   mode_rows:[{mode:'car',count:2,share:1,avg_time_label:'无有效数据',avg_time_seconds:null,avg_distance_m:null,
++    time_quality:{valid:0,missing:1,invalid:1},distance_quality:{valid:0,missing:2,invalid:0}}]});
++ });
++ const rendered=await page.locator('#modeTableBody').innerText();
++ assert.match(rendered,/无有效数据/);assert.match(rendered,/有效 0 \/ 缺失 1 \/ 非法 1/);
++ assert.doesNotMatch(rendered,/0 米/);
++ console.log(JSON.stringify({status:'passed',formatter_assertions:8,renderer_assertions:3,rendered}));
++ }finally{await browser.close();}
++})().catch(e=>{console.error(e);process.exit(1)});
+--- a/tests/test_building_geometry.py
++++ b/tests/test_building_geometry.py
+@@ -150,7 +150,9 @@
+                  patch.object(runs,'_ifline_record',return_value={'comparison':{'example':1}}):
+                 data=runs.result_payload('demo_sim')
+             self.assertEqual(data['skyline_scene_url'],'/results/demo_sim/ifline_scene.buildings-v1.json')
+-            self.assertEqual(data['ifline_comparison'],{'example':1})
++            self.assertEqual(data['recorded_ifline_comparison'],{'example':1})
++            self.assertNotIn('ifline_comparison', data)
++            self.assertIn('comparison_unavailable_reason', data)
+ 
+ 
+ if __name__=='__main__': unittest.main()
+--- a/tests/test_landmark_geometry.py
++++ b/tests/test_landmark_geometry.py
+@@ -229,7 +229,9 @@
+                 result = runs.result_payload('demo_sim')
+             self.assertEqual(result['skyline_scene_url'], '/results/demo_sim/ifline_scene.landuse-v2.json')
+             self.assertEqual(result['result_source'], 'existing_ifline_replay')
+-            self.assertEqual(result['ifline_comparison'], {'check':1})
++            self.assertEqual(result['recorded_ifline_comparison'], {'check':1})
++            self.assertNotIn('ifline_comparison', result)
++            self.assertIn('comparison_unavailable_reason', result)
+ 
+ 
+ class OsmAreaExtractionTests(unittest.TestCase):
+--- /dev/null
++++ b/tests/test_measurement_quality.py
+@@ -0,0 +1,177 @@
++import csv
++import gzip
++import json
++import tempfile
++import unittest
++from pathlib import Path
++from unittest.mock import patch
++
++from wrapper import analyze, runs
++from wrapper.ifline import compare_summaries
++from wrapper.impact import _time
++from wrapper.measurements import parse_time, nonnegative_number, trip_mode
++
++
++class MeasurementQualityTests(unittest.TestCase):
++    def setUp(self):
++        self.temp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.temp.cleanup)
++        self.output = Path(self.temp.name)
++        self.directory = self.output / "fixture_sim"
++        self.directory.mkdir()
++        with gzip.open(self.directory / "output_persons.csv.gz", "wt") as stream:
++            stream.write("person\n1\n")
++        (self.directory / "scorestats.txt").write_text("ITERATION\tavg. EXECUTED\n0\t-10\n1\t-9\n")
++        self.mock = patch.object(analyze, "OUTPUT_DIR", self.output)
++        self.mock.start()
++        self.addCleanup(self.mock.stop)
++
++    def summary(self, rows):
++        fields = ["modes", "main_mode", "trav_time", "traveled_distance"]
++        with gzip.open(self.directory / "output_trips.csv.gz", "wt", newline="") as stream:
++            writer = csv.DictWriter(stream, fieldnames=fields, delimiter=";")
++            writer.writeheader()
++            writer.writerows(rows)
++        return analyze.compute_summary_data("fixture_sim")
++
++    @staticmethod
++    def row(time, distance, mode="car"):
++        return {"modes": mode, "trav_time": time, "traveled_distance": distance}
++
++    def test_missing_measurements_do_not_halve_the_mean(self):
++        result = self.summary([self.row("00:01:30", "1000"), self.row("", "")])
++        row = result["mode_rows"][0]
++        self.assertEqual((row["avg_time_seconds"], row["avg_distance_m"]), (90, 1000))
++        self.assertEqual(row["time_quality"], {"valid": 1, "missing": 1, "invalid": 0})
++        self.assertEqual(result["total_trips"], 2)
++
++    def test_all_missing_is_null_and_markdown_can_render_it(self):
++        result = self.summary([self.row("", " ")])
++        row = result["mode_rows"][0]
++        self.assertIsNone(row["avg_time_seconds"])
++        self.assertIsNone(row["avg_distance_m"])
++        self.assertIn("null", json.dumps(result, allow_nan=False))
++        report = analyze.summarize("fixture_sim").read_text()
++        self.assertIn("无有效数据", report)
++        self.assertIn("0/1/0", report)
++
++    def test_real_zero_is_valid_and_not_missing(self):
++        row = self.summary([self.row("00:00:00", "0"), self.row("", "")])["mode_rows"][0]
++        self.assertEqual(row["avg_time_seconds"], 0)
++        self.assertEqual(row["avg_distance_m"], 0)
++        self.assertEqual(row["avg_time_label"], "0 秒")
++        self.assertEqual(row["time_quality"]["valid"], 1)
++
++    def test_malformed_negative_and_nonfinite_are_invalid(self):
++        values = ["broken", "-1", "NaN", "inf", "-inf"]
++        result = self.summary([self.row(v, v) for v in values] + [self.row("90", "1000")])
++        row = result["mode_rows"][0]
++        self.assertEqual((row["avg_time_seconds"], row["avg_distance_m"]), (90, 1000))
++        self.assertEqual(row["time_quality"], {"valid": 1, "missing": 0, "invalid": 5})
++        self.assertEqual(row["distance_quality"]["invalid"], 5)
++        json.dumps(result, allow_nan=False)
++
++    def test_time_and_distance_use_independent_denominators(self):
++        row = self.summary([self.row("90", ""), self.row("", "1000")])["mode_rows"][0]
++        self.assertEqual((row["avg_time_seconds"], row["avg_distance_m"]), (90, 1000))
++        self.assertEqual(row["time_quality"]["valid"], 1)
++        self.assertEqual(row["distance_quality"]["valid"], 1)
++
++    def test_empty_trips_produces_unavailable_overall_comparison(self):
++        result = self.summary([])
++        comparison = compare_summaries(result, result)
++        self.assertEqual(result["total_trips"], 0)
++        self.assertIsNone(comparison["baseline"]["avg_trip_time_seconds"])
++        self.assertIsNone(comparison["delta"]["avg_trip_time_seconds"])
++
++    def test_valid_sample_weighting_across_modes(self):
++        rows = [self.row("90", "1000")] + [self.row("", "") for _ in range(9)]
++        rows += [self.row("30", "100", "walk"), self.row("30", "100", "walk")]
++        result = self.summary(rows)
++        comparison = compare_summaries(result, result)
++        self.assertEqual(comparison["baseline"]["avg_trip_time_seconds"], 50)
++        self.assertEqual(comparison["baseline"]["avg_trip_distance_m"], 400)
++        self.assertEqual(comparison["baseline"]["time_valid_count"], 3)
++        self.assertEqual(comparison["delta"]["avg_trip_time_seconds"], 0)
++
++    def test_comparison_propagates_unavailable(self):
++        valid = self.summary([self.row("90", "1000")])
++        missing = self.summary([self.row("", "")])
++        result = compare_summaries(valid, missing)
++        for key in ("avg_trip_time_seconds", "avg_trip_time_percent", "avg_trip_distance_m", "avg_trip_distance_percent"):
++            self.assertIsNone(result["delta"][key])
++        self.assertIsNone(result["mode_changes"][0]["avg_time_delta_seconds"])
++        self.assertEqual(result["proposal"]["time_valid_count"], 0)
++
++    def test_absent_mode_does_not_imply_zero_duration(self):
++        base = self.summary([self.row("90", "1000", "car")])
++        alt = self.summary([self.row("30", "100", "walk")])
++        result = compare_summaries(base, alt)
++        for row in result["mode_changes"]:
++            self.assertIsNone(row["avg_time_delta_seconds"])
++
++    def test_main_mode_and_unambiguous_fallback_match_impact(self):
++        result = self.summary([
++            {"main_mode":"pt", "modes":"walk,pt,walk", "trav_time":"90", "traveled_distance":"1000"},
++            self.row("30", "100", "car"),
++            self.row("20", "50", "car,walk")])
++        self.assertEqual({r["mode"] for r in result["mode_rows"]}, {"pt", "car", "(未知)"})
++        self.assertEqual(result["data_quality"]["mode"], {"unknown":1, "fallback":1})
++
++    def test_hours_over_24_and_fractional_seconds(self):
++        self.assertIs(_time, parse_time)
++        for value, expected in [("30:00:00",108000), ("1:02:03.5",3723.5), ("90.5",90.5), (" 00:00:00 ",0)]:
++            with self.subTest(value=value):
++                self.assertEqual(parse_time(value), expected)
++
++    def test_invalid_clock_components_and_overflow_are_unavailable(self):
++        for value in ["00:60:00", "00:00:60", "1.5:00:00", "-1:00:00", "00:-1:00", "00:00:NaN", "1e309:00:00", "0:1.5:0", "a:b:c", None, ""]:
++            with self.subTest(value=value):
++                self.assertIsNone(parse_time(value))
++
++    def test_fully_measured_result_preserves_expected_mean_and_count(self):
++        row = self.summary([self.row("00:01:00", "1000"), self.row("00:02:00", "2000")])["mode_rows"][0]
++        self.assertEqual((row["count"], row["avg_time_seconds"], row["avg_distance_m"]), (2,90,1500))
++        self.assertEqual(row["time_quality"], {"valid":2,"missing":0,"invalid":0})
++
++    def test_distance_rejects_boolean_and_preserves_zero(self):
++        self.assertIsNone(nonnegative_number(True))
++        self.assertEqual(nonnegative_number("0"),0)
++
++    def test_legacy_record_can_omit_new_quality_but_not_changed_metrics(self):
++        from scripts.report_demo_comparison import recorded_comparison_matches
++        old={"baseline":{"avg_trip_time_seconds":90}}
++        fresh={"baseline":{"avg_trip_time_seconds":90, "time_valid_count":1, "data_quality":{}}}
++        self.assertTrue(recorded_comparison_matches(old, fresh))
++        fresh["baseline"]["avg_trip_time_seconds"]=45
++        self.assertFalse(recorded_comparison_matches(old, fresh))
++        self.assertFalse(recorded_comparison_matches({}, fresh))
++
++    def test_replay_recomputes_legacy_comparison_without_rewriting_it(self):
++        import shutil
++        self.summary([self.row("90", "1000"), self.row("", "")])
++        (self.directory / "output_config.xml").write_text("<config/>")
++        shutil.copytree(self.directory, self.output / "base_sim")
++        folder=self.output / "ifline" / "fixture"
++        folder.mkdir(parents=True)
++        record={"baseline_run":"base_sim", "comparison":{"scenario_name":"Original", "baseline":{"avg_trip_time_seconds":45}}}
++        path=folder/"scenario.json"
++        path.write_text(json.dumps(record))
++        original=path.read_bytes()
++        with patch.object(runs, "OUTPUT_DIR", self.output):
++            payload=runs.result_payload("fixture_sim")
++        self.assertEqual(payload["ifline_comparison"]["baseline"]["avg_trip_time_seconds"],90)
++        self.assertEqual(payload["ifline_comparison"]["scenario_name"],"Original")
++        self.assertEqual(path.read_bytes(),original)
++
++    def test_report_export_handles_null_measurements(self):
++        from scripts.report_demo_comparison import export_report
++        result=self.summary([self.row("", "")])
++        evidence={"baseline_run":"a", "proposal_run":"b", "comparison":compare_summaries(result,result), "limitations":[]}
++        destination=self.output/"report"
++        export_report(evidence,destination)
++        self.assertIn("Unavailable",(destination/"README.md").read_text())
++
++
++if __name__ == "__main__":
++    unittest.main()
+--- /dev/null
++++ b/scripts/build_portfolio.py
+@@ -0,0 +1,11 @@
++"""Build the offline page from its reviewed aggregate evidence, without network access."""
++import json
++from pathlib import Path
++
++ROOT=Path(__file__).resolve().parents[1]
++directory=ROOT/"portfolio"
++data=json.loads((directory/"evidence/case.json").read_text(encoding="utf-8"))
++template=(directory/"template.html").read_text(encoding="utf-8")
++embedded=json.dumps(data,ensure_ascii=False,allow_nan=False).replace("<", "\\u003c")
++(directory/"index.html").write_text(template.replace("__CASE_JSON__",embedded),encoding="utf-8")
++print("Built portfolio/index.html from portfolio/evidence/case.json")
+--- /dev/null
++++ b/scripts/check_portfolio.cjs
+@@ -0,0 +1,30 @@
++const {chromium}=require('playwright');
++const assert=require('node:assert/strict');
++(async()=>{
++ const browser=await chromium.launch({headless:true});
++ try{
++ const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];
++ page.on('pageerror',e=>errors.push(e.message));
++ const url=process.argv[2]||'http://127.0.0.1:8765/portfolio/index.html';
++ await page.goto(url,{waitUntil:'networkidle'});
++ await page.getByRole('button',{name:'Experiment',exact:true}).click();
++ assert.equal(await page.locator('#seedRows tr').count(),3);
++ assert.equal(await page.locator('#closureDelta').innerText(),'+7.530 s');
++ await page.getByLabel('Experiment seed').selectOption('4711');
++ assert.equal(await page.locator('#seedRows tr').count(),1);
++ assert.equal(await page.locator('#alternativeDelta').innerText(),'+0.117 s');
++ await page.getByRole('button',{name:'Data quality',exact:true}).click();
++ for(const [selection,expected] of [['missing','90 s'],['zero','45 s'],['invalid','90 s'],['all','Unavailable']]){
++  await page.locator('#measurement').selectOption(selection);assert.equal(await page.locator('#mean').innerText(),expected);
++ }
++ for(const width of [390,768,1440]){
++  await page.setViewportSize({width,height:1000});
++  for(const tab of ['Overview','Architecture','Experiment','Data quality','Evidence']){
++   await page.getByRole('button',{name:tab,exact:true}).click();
++   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Horizontal overflow: ${tab} at ${width}`);
++  }
++ }
++ assert.deepEqual(errors,[]);
++ console.log(JSON.stringify({status:'passed',seed_and_metric_checks:4,quality_states:4,responsive_sections:15,page_errors:errors}));
++ }finally{await browser.close();}
++})().catch(e=>{console.error(e);process.exit(1)});
+--- /dev/null
++++ b/scripts/export_portfolio_case.py
+@@ -0,0 +1,77 @@
++"""Export reviewed aggregate results without running MATSim or exporting trip rows."""
++import argparse
++import csv
++import hashlib
++import json
++import statistics
++from datetime import datetime, timezone
++from pathlib import Path
++from wrapper.analyze import compute_summary_data
++from wrapper.planning_catalog import planning_cases
++
++ROOT=Path(__file__).resolve().parents[1]
++CASE="cbd_expanded1037_detour_10it_review_r02"
++
++def digest(path):
++    with path.open("rb") as stream:
++        result=hashlib.sha256()
++        for chunk in iter(lambda: stream.read(1024*1024), b""):
++            result.update(chunk)
++        return result.hexdigest()
++
++def export(destination):
++    if destination.exists():
++        raise FileExistsError("Choose a new export directory; existing evidence is preserved")
++    case=next(item for item in planning_cases()["cases"] if item["id"]==CASE)
++    if not case["controls_verified"] or case["status"]!="completed":
++        raise ValueError("The featured case does not have verified completed controls")
++    rows=[]
++    for seed in (4711,4712,4713):
++        for scenario in ("baseline","closure","alternative"):
++            run=f"{CASE}_s{seed}_{scenario}_a01_sim"
++            summary=compute_summary_data(run)
++            car=next(row for row in summary["mode_rows"] if row["mode"]=="car")
++            if (summary["person_count"],summary["total_trips"],summary["num_iterations"],car["count"]) != (1037,3623,10,934):
++                raise ValueError(f"Unexpected featured-case counts: {run}")
++            rows.append({"seed":seed,"scenario":scenario,"run":run,
++                         "persons":summary["person_count"],"trips":summary["total_trips"],
++                         "iterations":summary["num_iterations"],"car_trips":car["count"],
++                         "car_mean_seconds":car["avg_time_seconds"],
++                         "car_mean_distance_m":car["avg_distance_m"],
++                         "car_time_quality":car["time_quality"],
++                         "car_distance_quality":car["distance_quality"],
++                         "all_trip_quality":summary["data_quality"],
++                         "artifact_sha256":{name:digest(ROOT/"output"/run/name) for name in
++                            ("output_trips.csv.gz","output_persons.csv.gz","scorestats.txt")}})
++    differences=[]
++    for seed in (4711,4712,4713):
++        group={row["scenario"]:row["car_mean_seconds"] for row in rows if row["seed"]==seed}
++        differences.append({"seed":seed,
++            "closure_minus_baseline_s":group["closure"]-group["baseline"],
++            "alternative_minus_baseline_s":group["alternative"]-group["baseline"],
++            "alternative_minus_closure_s":group["alternative"]-group["closure"]})
++    data={"release":"2026.10-p0","case_id":CASE,"exported_at_utc":datetime.now(timezone.utc).isoformat(),
++          "scope":"Recomputed from nine saved native trip tables; no new simulation or real-traffic calibration",
++          "metric":"Arithmetic mean of valid car-trip durations in seconds; each seed weighted equally in the descriptive mean difference",
++          "measurement_policy":"Finite nonnegative measurements only; real zero valid; missing/invalid excluded separately per metric; all missing means null",
++          "controls_verification":case["controls_verification"],"runs":rows,"differences":differences,
++          "descriptive_mean_differences":{key:statistics.mean(row[key] for row in differences) for key in differences[0] if key!="seed"},
++          "limitations":["Synthetic agents; not observed individual travel", "No observed-traffic calibration or predictive accuracy claim",
++                         "Teleported public transport, not GTFS vehicles/timetables", "Three seeds are descriptive, not confidence intervals or convergence evidence",
++                         "The same people recur across seeds; do not treat them as independent samples", "Bounding-box coverage is not connectivity or transport validity"],
++          "analysis_source_sha256":{str(path.relative_to(ROOT)):digest(path) for path in
++              [ROOT/"wrapper/analyze.py",ROOT/"wrapper/measurements.py",Path(__file__)]}}
++    destination.mkdir(parents=True)
++    (destination/"case.json").write_text(json.dumps(data,indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
++    fields=["seed","scenario","run","persons","trips","iterations","car_trips","car_mean_seconds","car_mean_distance_m"]
++    with (destination/"case.csv").open("w",newline="",encoding="utf-8") as stream:
++        writer=csv.DictWriter(stream,fieldnames=fields,extrasaction="ignore")
++        writer.writeheader(); writer.writerows(rows)
++    return data
++
++if __name__=="__main__":
++    parser=argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--destination",type=Path,required=True)
++    args=parser.parse_args()
++    result=export(args.destination)
++    print(json.dumps({"runs":len(result["runs"]),"differences":result["descriptive_mean_differences"]},indent=2))
+--- a/scripts/report_demo_comparison.py
++++ b/scripts/report_demo_comparison.py
+@@ -72,6 +72,25 @@
+     return {"nodes": len(base_nodes), "directed_links": len(base_links), "changes": changes}
+ 
+ 
++# These diagnostics were added in summary schema v2. Old records may omit them,
++# but their original numerical claims must still equal a fresh recomputation.
++_ADDED_QUALITY_FIELDS = {"time_valid_count", "distance_valid_count", "data_quality",
++                         "baseline_time_valid_count", "proposal_time_valid_count",
++                         "baseline_distance_valid_count", "proposal_distance_valid_count"}
++
++
++def recorded_comparison_matches(recorded, current):
++    if isinstance(current, dict):
++        return isinstance(recorded, dict) and all(
++            (key not in recorded and key in _ADDED_QUALITY_FIELDS)
++            or (key in recorded and recorded_comparison_matches(recorded[key], value))
++            for key, value in current.items())
++    if isinstance(current, list):
++        return isinstance(recorded, list) and len(recorded) == len(current) and all(
++            recorded_comparison_matches(a, b) for a, b in zip(recorded, current))
++    return recorded == current
++
++
+ def build_evidence(baseline_run: str, proposal_run: str) -> dict:
+     baseline = resolve_run_assets(baseline_run)
+     proposal = resolve_run_assets(proposal_run)
+@@ -100,7 +119,7 @@
+     comparison = compare_summaries(*summaries)
+     comparison_path = OUTPUT_DIR / "ifline" / proposal["run_id"] / "comparison.json"
+     recorded = json.loads(comparison_path.read_text())
+-    if any(recorded[key] != value for key, value in comparison.items()):
++    if not recorded_comparison_matches(recorded, comparison):
+         raise ValueError("Recorded comparison does not match the current raw trip outputs")
+     files = [baseline["record_path"], proposal["record_path"], comparison_path,
+              baseline["plans_file"], baseline["network_file"], proposal["network_file"], *config_paths]
+@@ -140,6 +159,10 @@
+     }
+ 
+ 
++def _metric(value, signed=False):
++    return "Unavailable" if value is None else format(value, "+.3f" if signed else ".3f")
++
++
+ def export_report(evidence: dict, destination: Path) -> None:
+     destination.mkdir(parents=True, exist_ok=False)
+     (destination / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n")
+@@ -156,15 +179,16 @@
+              "| Metric | Baseline | Proposal | Difference |", "| --- | ---: | ---: | ---: |",
+              f"| Synthetic agents | {base['person_count']} | {alt['person_count']} | {alt['person_count'] - base['person_count']:+d} |",
+              f"| Recorded trips | {base['total_trips']} | {alt['total_trips']} | {delta['trip_count']:+d} |",
+-             f"| Mean trip time (s) | {base['avg_trip_time_seconds']:.3f} | {alt['avg_trip_time_seconds']:.3f} | {delta['avg_trip_time_seconds']:+.3f} |",
+-             f"| Mean trip distance (m) | {base['avg_trip_distance_m']:.3f} | {alt['avg_trip_distance_m']:.3f} | {delta['avg_trip_distance_m']:+.3f} |",
++             f"| Mean trip time (s) | {_metric(base['avg_trip_time_seconds'], False)} | {_metric(alt['avg_trip_time_seconds'], False)} | {_metric(delta['avg_trip_time_seconds'], True)} |",
++             f"| Mean trip distance (m) | {_metric(base['avg_trip_distance_m'], False)} | {_metric(alt['avg_trip_distance_m'], False)} | {_metric(delta['avg_trip_distance_m'], True)} |",
+              "", "## Mode-level travel time", "",
+              "| Mode | Baseline mean (s) | Proposal mean (s) | Difference (s) |",
+              "| --- | ---: | ---: | ---: |"]
+     for row in rows:
+-        lines.append(f"| {row['mode']} | {row['baseline_avg_time_seconds']:.3f} | {row['proposal_avg_time_seconds']:.3f} | {row['avg_time_delta_seconds']:+.3f} |")
++        lines.append(f"| {row['mode']} | {_metric(row['baseline_avg_time_seconds'], False)} | {_metric(row['proposal_avg_time_seconds'], False)} | {_metric(row['avg_time_delta_seconds'], True)} |")
+     lines.extend(["", "## Evidence and limits", "",
+                   "Input-plan hash, configuration equality, actual network changes and artifact hashes are in `evidence.json`.",
++                  "Means use each metric's valid count; missing/invalid measurements are excluded, never zero-filled. Counts and quality diagnostics are in evidence.json.",
+                   "The CSV retains numerical precision; displayed tables round for readability.", ""])
+     lines.extend(f"- {item}" for item in evidence["limitations"])
+     (destination / "README.md").write_text("\n".join(lines) + "\n")

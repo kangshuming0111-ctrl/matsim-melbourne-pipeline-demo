@@ -46,3 +46,4 @@ def image_matches_source(image_tag: str, fingerprint: str) -> bool:
 
 def fingerprint_build_args(fingerprint: str) -> list[str]:
     return ["--label", f"{FINGERPRINT_LABEL}={fingerprint}"]
+

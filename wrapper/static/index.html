@@ -3,7 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MATSim 交通仿真 — 一键体验</title>
+<title>IF Line — 城市交通政策实验室</title>
+<script>
+  // This interface depends on the local FastAPI service. Opening this file
+  // directly makes every API request fail, so recover to the supported entry.
+  if (window.location.protocol === 'file:') {
+    window.location.replace('http://127.0.0.1:8000/');
+  }
+</script>
 <script src="/static/vendor/three/three.min.js"></script>
 <script src="/static/vendor/three/controls/OrbitControls.js"></script>
 <script src="/static/vendor/three/shaders/CopyShader.js"></script>
@@ -12,6 +19,17 @@
 <script src="/static/vendor/three/postprocessing/RenderPass.js"></script>
 <script src="/static/vendor/three/postprocessing/ShaderPass.js"></script>
 <script src="/static/vendor/three/postprocessing/UnrealBloomPass.js"></script>
+<script src="/static/skyline-rendering.js?v=depth24-1"></script>
+<script src="/static/landuse-geometry.js?v=areas-2"></script>
+<script src="/static/building-mesh.js?v=facade-2"></script>
+<script src="/static/building-style.js?v=1"></script>
+<script src="/static/static-batches.js?v=1"></script>
+<script src="/static/plan-state.js?v=1"></script>
+<script src="/static/road-mesh.js?v=1"></script>
+<script src="/static/road-design.js?v=1"></script>
+<script src="/static/planning-ui.js?v=5" defer></script>
+<script src="/static/road-editor.js?v=2" defer></script>
+<script src="/static/studio-viewport.js?v=1"></script>
 <style>
   body {
     font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -85,6 +103,16 @@
     border: 1px solid #ccc;
     background: white;
   }
+  input[type="text"], input[type="number"] {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    padding: 10px;
+    font-size: 15px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: white;
+  }
   #error {
     display: none;
     padding: 16px;
@@ -111,8 +139,220 @@
   .legend-swatch { width:14px; height:14px; border-radius:4px; display:inline-block; box-shadow:inset 0 0 0 1px rgba(20,30,40,.12); }
   .scene-controls { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .scene-controls button { width:auto; display:inline-block; padding:8px 13px; margin:0; font-size:13px; }
-  .scene-controls select { width:auto; display:inline-block; padding:7px 28px 7px 9px; font-size:13px; }
+  .scene-controls select { width:auto; max-width:100%; display:inline-block; padding:7px 28px 7px 9px; font-size:13px; }
   .scene-controls .timeline-slider { flex:1; min-width:180px; }
+  .scene-controls .playback-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; width:100%; min-width:0; }
+  .scene-controls .playback-note { flex-basis:100%; font-size:11px; color:#647084; line-height:1.4; }
+  .scene-controls .playback-row:first-child { display:grid; grid-template-columns:auto auto minmax(64px,1fr) auto; }
+  .scene-controls #simSpeed { grid-column:4; grid-row:1; }
+  .scene-controls .timeline-slider { grid-column:1 / -1; grid-row:2; width:100%; min-width:0; margin:2px 0; }
+  .ifline-panel { border:1px solid #b9d1fa; overflow:hidden; }
+  .ifline-panel::before {
+    content:""; display:block; height:4px; margin:-20px -20px 18px;
+    background:linear-gradient(90deg,#2563eb,#17a89b,#f59e0b);
+  }
+  .ifline-layout { display:grid; grid-template-columns:minmax(280px,.82fr) minmax(420px,1.5fr); gap:20px; align-items:start; }
+  .ifline-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .ifline-fields .wide { grid-column:1 / -1; }
+  .ifline-check { display:flex; align-items:center; gap:8px; margin:12px 0; font-size:13px; color:#475569; }
+  .ifline-check input { width:16px; height:16px; }
+  .ifline-map-wrap { background:#eaf0f5; border:1px solid #cbd5e1; border-radius:12px; overflow:hidden; position:relative; }
+  #iflineMap { display:block; width:100%; height:390px; touch-action:none; }
+  #iflineMap line { cursor:pointer; pointer-events:stroke; transition:stroke .12s, stroke-width .12s, opacity .12s; }
+  #iflineMap line:hover { stroke:#3b82f6 !important; opacity:1 !important; }
+  #iflineMap line.selected { stroke:#0f6fff !important; opacity:1 !important; stroke-width:4.5 !important; }
+  #iflineMap line.reverse-selected { stroke:#55a7ff !important; opacity:1 !important; stroke-width:3.2 !important; }
+  .ifline-map-note { position:absolute; left:10px; top:10px; background:rgba(255,255,255,.9); border-radius:7px; padding:5px 8px; font-size:11px; color:#475569; pointer-events:none; }
+  .selected-link { margin-top:10px; padding:10px 12px; border-radius:9px; background:#eef5ff; color:#254165; font-size:12px; min-height:20px; }
+  .ifline-status { display:none; margin-top:12px; padding:11px 12px; border-radius:9px; background:#eff6ff; color:#1e3a5f; font-size:13px; }
+  .branch-list { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .branch-chip { display:inline-block; width:auto; margin:0; border:1px solid #d8e1ec; border-radius:999px; padding:6px 11px; font-size:11px; color:#526174; background:#f8fafc; }
+  button.branch-chip:not(:disabled):hover { background:#eef5ff; color:#1d4ed8; transform:none; }
+  .ifline-entry { display:grid; grid-template-columns:minmax(280px,.88fr) minmax(360px,1.12fr); gap:20px; margin-top:16px; align-items:stretch; }
+  .ifline-launch-card {
+    border:1px solid #cad9eb; border-radius:13px; padding:16px;
+    background:linear-gradient(135deg,#eef6ff 0%,#f2fbf8 100%);
+    display:flex; flex-direction:column; justify-content:center;
+  }
+  .ifline-launch-card strong { font-size:15px; color:#1e3a5f; }
+  .ifline-launch-card ul { margin:9px 0 0; padding-left:19px; color:#53637a; font-size:13px; }
+  .ifline-fallback { border-top:1px solid #e2e8f0; margin-top:16px; padding-top:10px; }
+  .ifline-fallback summary { cursor:pointer; color:#64748b; font-size:12px; }
+  .studio-launch-button { background:linear-gradient(90deg,#1769e0,#138c7b); box-shadow:0 9px 20px rgba(28,103,196,.2); }
+  body.ifline-studio-open { overflow:hidden; }
+  #iflineStudioStage { position:relative; }
+  #iflineStudioStage, #iflineStudioStage * { box-sizing:border-box; }
+  .studio-only { display:none; }
+  body.ifline-studio-open #iflineStudioStage {
+    position:fixed; left:var(--studio-left,0px); top:var(--studio-top,0px);
+    width:var(--studio-width,100vw); height:var(--studio-height,100vh);
+    z-index:10000; margin:0; padding:0;
+    display:grid; grid-template-columns:minmax(0,1fr) 360px;
+    grid-template-rows:64px minmax(0,1fr) auto;
+    background:#09131b;
+  }
+  body.ifline-studio-open .studio-only { display:flex; }
+  body.ifline-studio-open #iflineStudioTopbar {
+    grid-column:1 / -1; grid-row:1; align-items:center; justify-content:space-between;
+    gap:16px; padding:0 18px; color:white; background:rgba(10,24,34,.96);
+    border-bottom:1px solid rgba(255,255,255,.12); box-shadow:0 8px 24px rgba(0,0,0,.18);
+  }
+  .studio-brand { display:flex; align-items:center; gap:12px; min-width:0; }
+  .studio-brand-mark { width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,#2b7fff,#16a085); display:grid; place-items:center; font-weight:800; }
+  .studio-brand-title { font-weight:750; letter-spacing:.01em; }
+  .studio-brand-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .studio-brand-mark, #iflineStudioTopbar > :last-child { flex-shrink:0; }
+  .studio-brand-subtitle { color:#9fb1bf; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:52vw; }
+  #iflineStudioTopbar button { width:auto; display:inline-block; margin:0; padding:8px 12px; font-size:13px; background:#263946; }
+  #iflineStudioTopbar #studioPanelToggle { display:none; }
+  body.ifline-studio-open #skylineContainer {
+    grid-column:1; grid-row:2; width:100%; height:100%; min-height:0;
+    margin:0; border-radius:0; cursor:crosshair; background:#0b1821;
+  }
+  body.ifline-studio-open #iflineStudioTools {
+    grid-column:2; grid-row:2 / 4; flex-direction:column; overflow:auto;
+    min-width:0; min-height:0; overscroll-behavior:contain;
+    padding:18px; color:#e7eef4; background:rgba(13,28,39,.98);
+    border-left:1px solid rgba(255,255,255,.12); box-shadow:-10px 0 30px rgba(0,0,0,.2);
+  }
+  /* Intrinsic SVG/input sizes and long names must not widen the sidebar. */
+  #iflineStudioTools * { min-width:0; max-width:100%; }
+  #iflineStudioTools > * { flex-shrink:0; }
+  #iflineStudioTools { overflow-wrap:anywhere; }
+  #iflineStudioTools button { white-space:normal; }
+  #iflineStudioTools input[type=checkbox] { flex-shrink:0; }
+  #planPoints > div { flex-wrap:wrap; }
+  #iflineStudioTools h3 { margin:0 0 4px; font-size:18px; }
+  #iflineStudioTools p { color:#9fb1bf; font-size:12px; margin:0 0 12px; }
+  #iflineStudioTools label { color:#b9c8d2; font-size:12px; margin-top:12px; }
+  #iflineStudioTools select, #iflineStudioTools input[type="text"], #iflineStudioTools input[type="number"] {
+    color:#e7eef4; background:#172b39; border-color:#36505f;
+  }
+  .studio-selection {
+    padding:13px; border-radius:11px; border:1px solid #36566a;
+    background:#122735; min-height:64px; color:#d7e5ed; font-size:12px;
+  }
+  .studio-selection strong { display:block; color:#68b4ff; font-size:15px; margin-bottom:3px; }
+  .studio-mode-switch { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:7px; margin:12px 0 14px; }
+  .studio-mode-switch button {
+    margin:0; min-height:46px; padding:9px 8px; font-size:12px;
+    color:#b9cbd6; background:#172b39; border:1px solid #345365;
+  }
+  .studio-mode-switch button.active {
+    color:white; background:linear-gradient(135deg,#1769e0,#147f91);
+    border-color:#63b4ff; box-shadow:0 0 0 2px rgba(65,153,255,.16);
+  }
+  .studio-draw-card {
+    padding:12px; border:1px solid #36566a; border-radius:11px;
+    background:linear-gradient(145deg,#102836,#152f3b); color:#d8e7ef;
+  }
+  .studio-draw-card strong { display:block; color:#74c6ff; font-size:14px; margin-bottom:4px; }
+  .studio-draw-actions { display:grid; grid-template-columns:minmax(0,1.25fr) repeat(2,minmax(0,1fr)); gap:7px; margin:10px 0; }
+  .studio-draw-actions button { margin:0; padding:9px 5px; font-size:11px; background:#213b4b; border:1px solid #3c5b6c; }
+  .studio-draw-actions button.primary { background:#1769e0; border-color:#63adff; }
+  .studio-parameter-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .studio-parameter-grid label { margin-top:7px!important; }
+  .studio-parameter-grid input { margin-top:4px; }
+  .studio-mode-checks { display:flex; gap:13px; flex-wrap:wrap; margin:9px 0 2px; }
+  .studio-mode-checks label { display:flex; align-items:center; gap:5px; margin:0!important; }
+  .studio-mode-checks input { width:15px; height:15px; }
+  .studio-draw-note { display:block; margin-top:8px; color:#91a8b6; font-size:11px; line-height:1.45; }
+  .studio-tool-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:10px; }
+  .studio-tool-tabs button { margin:0; padding:9px 5px; font-size:12px; background:#203745; border:1px solid #345365; }
+  .studio-tool-tabs button.active { background:#1769e0; border-color:#62adff; box-shadow:0 0 0 2px rgba(65,153,255,.18); }
+  .studio-value-row { display:grid; grid-template-columns:minmax(0,1fr) 92px; gap:9px; align-items:center; }
+  #iflineStudioRange { width:100%; accent-color:#4d9cff; }
+  .studio-check { display:flex!important; align-items:center; gap:8px; margin:12px 0!important; color:#c7d4dc!important; }
+  .studio-check input { width:16px; height:16px; }
+  #planAcknowledgement[hidden] { display:none!important; }
+  #planOperations { padding-left:22px; font-size:13px; }
+  #planReport { font-size:13px; line-height:1.5; }
+  #planConflicts button { background:#234052; border:1px solid #3c6277; font-size:12px; }
+  #planSaveStatus { color:#9dcbd1; font-size:12px; }
+  .studio-preview { border-left:3px solid #3d95ef; background:#122735; padding:10px 12px; border-radius:8px; color:#b9cad5; font-size:12px; }
+  .studio-preview strong { display:block; color:#f5f8fa; margin-bottom:3px; }
+  #iflineStudioRun { margin-top:14px; padding:13px; font-size:15px; background:linear-gradient(90deg,#1769e0,#128b78); }
+  #iflineStudioRun:disabled { background:#415665; }
+  #iflineStudioStatus { display:none; margin-top:10px; padding:10px; border-radius:8px; background:#193246; color:#bcd8eb; font-size:12px; }
+  #iflineStudioHint {
+    position:absolute; left:18px; top:82px; z-index:10002; pointer-events:none;
+    align-items:center; gap:8px; padding:8px 11px; border-radius:9px;
+    color:#e7f0f5; background:rgba(8,23,32,.82); border:1px solid rgba(255,255,255,.15); font-size:12px;
+  }
+  #iflineStudioHint::before { content:""; width:8px; height:8px; border-radius:50%; background:#45a3ff; box-shadow:0 0 10px #45a3ff; }
+  body.ifline-studio-open #simTimeline {
+    grid-column:1; grid-row:3; margin:0; padding:12px 18px; background:rgba(10,24,34,.96);
+    border-top:1px solid rgba(255,255,255,.12); color:#e7eef4; align-items:center;
+    max-height:32vh; overflow:auto; box-sizing:border-box;
+  }
+  body.ifline-studio-open #simTimeline .playback-note { color:#b9c8d2; }
+  body.ifline-studio-open #simTimeline #simClock,
+  body.ifline-studio-open #simTimeline #simActiveCars { color:#d9e5ec!important; }
+  body.ifline-studio-open #simTimeline button,
+  body.ifline-studio-open #simTimeline select { background:#263d4b; color:#eef5f8; border-color:#405967; }
+  .studio-selected-overlay { pointer-events:none; }
+  .comparison-panel {
+    display:none; margin:18px 0 24px; padding:22px; border-radius:16px;
+    background:linear-gradient(145deg,#f8fbff 0%,#f3f8f7 100%); border:1px solid #cbdbea;
+  }
+  .comparison-header { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+  .comparison-kicker { color:#2563eb; font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+  .comparison-verdict {
+    display:grid; grid-template-columns:54px minmax(0,1fr) auto; gap:14px; align-items:center;
+    margin:16px 0; padding:16px; border-radius:13px; border:1px solid #d9e4ee; background:#fff;
+  }
+  .verdict-icon { width:46px; height:46px; border-radius:13px; display:grid; place-items:center; font-size:24px; font-weight:850; }
+  .comparison-verdict strong { display:block; color:#172033; font-size:18px; line-height:1.35; }
+  .comparison-verdict p { margin:4px 0 0; color:#64748b; font-size:12px; }
+  .verdict-badge { padding:6px 10px; border-radius:999px; font-size:12px; font-weight:800; white-space:nowrap; }
+  .comparison-verdict.better .verdict-icon, .comparison-verdict.better .verdict-badge { color:#08745b; background:#dff6ee; }
+  .comparison-verdict.worse .verdict-icon, .comparison-verdict.worse .verdict-badge { color:#a92e2b; background:#fde8e6; }
+  .comparison-verdict.neutral .verdict-icon, .comparison-verdict.neutral .verdict-badge { color:#516173; background:#eaf0f5; }
+  .comparison-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin:12px 0 18px; }
+  .comparison-card { background:white; border-radius:11px; padding:13px 14px; border:1px solid #dfe7ef; min-width:0; }
+  .comparison-card .metric-title { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#526174; font-size:12px; font-weight:700; }
+  .comparison-card .metric-values { display:grid; grid-template-columns:1fr auto 1fr; gap:8px; align-items:end; margin-top:10px; }
+  .comparison-card .metric-value { min-width:0; }
+  .comparison-card .metric-value span { display:block; color:#8a96a6; font-size:10px; }
+  .comparison-card .metric-value strong { display:block; color:#1f2d40; font-size:18px; line-height:1.25; white-space:nowrap; }
+  .comparison-card .metric-arrow { color:#a0adba; padding-bottom:2px; }
+  .comparison-card .metric-delta { margin-top:8px; font-size:12px; font-weight:800; }
+  .comparison-section { margin-top:14px; padding:15px; border-radius:12px; border:1px solid #dfe7ef; background:rgba(255,255,255,.86); }
+  .comparison-section-head { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:10px; }
+  .comparison-section h4 { margin:0; font-size:14px; color:#243348; }
+  .comparison-section .section-insight { color:#64748b; font-size:11px; text-align:right; max-width:58%; }
+  .mode-share-row { display:grid; grid-template-columns:54px minmax(0,1fr); gap:9px; align-items:center; margin:8px 0; }
+  .mode-share-label { font-size:11px; font-weight:750; color:#526174; }
+  .mode-share-bar { height:25px; display:flex; overflow:hidden; border-radius:7px; background:#e8edf2; box-shadow:inset 0 0 0 1px rgba(40,60,80,.08); }
+  .mode-share-segment { min-width:0; height:100%; display:flex; align-items:center; justify-content:center; color:white; font-size:9px; font-weight:800; overflow:hidden; transition:width .25s ease; }
+  .mode-share-legend { display:flex; flex-wrap:wrap; gap:8px 13px; margin:10px 0 0 63px; color:#59697b; font-size:10px; }
+  .mode-share-legend span { display:inline-flex; align-items:center; gap:4px; }
+  .mode-share-legend i { width:8px; height:8px; border-radius:2px; display:inline-block; }
+  .impact-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 13px; }
+  .impact-summary div { padding:9px 10px; border-radius:8px; background:#f5f8fb; color:#6b7788; font-size:10px; }
+  .impact-summary strong { display:block; margin-top:1px; color:#26364d; font-size:17px; }
+  .impact-list { display:grid; gap:7px; }
+  .impact-row { display:grid; grid-template-columns:66px minmax(120px,1fr) 112px; gap:9px; align-items:center; color:#536174; font-size:10px; }
+  .impact-link { font-weight:750; color:#3c4d61; }
+  .impact-track { position:relative; height:10px; border-radius:5px; background:#edf1f4; overflow:hidden; }
+  .impact-track::after { content:""; position:absolute; left:50%; top:0; bottom:0; width:1px; background:#aab5c0; }
+  .impact-fill { position:absolute; top:1px; bottom:1px; min-width:2px; }
+  .impact-fill.better { right:50%; background:#149e7a; border-radius:4px 0 0 4px; }
+  .impact-fill.worse { left:50%; background:#d6332e; border-radius:0 4px 4px 0; }
+  .impact-value { text-align:right; font-variant-numeric:tabular-nums; }
+  .comparison-raw summary { cursor:pointer; color:#526174; font-size:11px; font-weight:700; }
+  .comparison-note { margin-top:12px; padding-top:11px; border-top:1px solid #dbe4ec; color:#657386; font-size:11px; }
+  .studio-result-card { display:none; padding:13px; margin-bottom:13px; border-radius:11px; border:1px solid #3e7180; background:linear-gradient(145deg,#123240,#153b40); }
+  .studio-result-card .studio-result-kicker { color:#73d7c1; font-size:10px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+  .studio-result-card > strong { display:block; margin:4px 0; color:#fff; font-size:16px; line-height:1.35; }
+  .studio-result-card p { margin:0!important; color:#a9c2cb!important; }
+  .studio-result-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:10px 0; }
+  .studio-result-metrics div { padding:7px; border-radius:7px; background:rgba(255,255,255,.07); color:#9fb7c1; font-size:9px; }
+  .studio-result-metrics strong { display:block; margin-top:2px; color:#f4f8fa; font-size:13px; }
+  .studio-result-card button { margin:8px 0 0!important; padding:9px!important; font-size:12px!important; background:#2474d8!important; }
+  .delta-better { color:#0f8c6b !important; }
+  .delta-worse { color:#c2413b !important; }
+  .delta-neutral { color:#64748b !important; }
   #skylineContainer {
     width: 100%;
     height: 580px;
@@ -122,19 +362,55 @@
     cursor: grab;
   }
   #skylineContainer canvas { display: block; }
+  .road-workbench { margin:12px 0;padding:12px;border:1px solid #415c70;border-radius:10px;background:#122a39; }
+  .road-workbench .road-actions { display:flex;flex-wrap:wrap;gap:6px; }
+  #iflineStudioTools .road-workbench button { width:auto;margin:5px 0;padding:7px 10px;font-size:12px; }
+  .road-workbench label { display:flex;align-items:center;gap:8px;color:#c6dce6;margin:8px 0; }
+  .road-workbench input[type=number] { width:72px; }
+  #roadProfile { display:block;width:100%;height:auto;background:#0c202c;border-radius:8px;touch-action:none; }
+  #roadProfile [role=slider] { cursor:ns-resize;outline:none; }
+  #roadProfile [role=slider]:focus { stroke:white;stroke-width:4; }
+  #roadProfileHint,#roadEditorReadout { font-size:11px;color:#b8d9eb;line-height:1.5;min-height:2em; }
+  #roadLiveReadout { position:fixed;pointer-events:none;z-index:10005;max-width:250px;padding:8px 11px;background:#102a38ee;color:#e7f7ff;border:1px solid #75b8e5;border-radius:8px;font-size:12px;white-space:pre-line; }
+  /* Compact mode follows the visible viewport, not just the layout viewport.
+     The drawer belongs to the stage, so it uses the same zoom/pan offset. */
+  body.ifline-studio-open #iflineStudioStage.studio-compact { grid-template-columns:minmax(0,1fr); grid-template-rows:58px minmax(0,1fr) auto; }
+  body.ifline-studio-open .studio-compact #iflineStudioTools {
+    position:relative; grid-column:1; grid-row:2; justify-self:end; margin:12px 10px;
+    width:min(330px,calc(100% - 20px));
+    z-index:10003; border:1px solid rgba(255,255,255,.14); border-radius:12px;
+  }
+  body.ifline-studio-open .studio-compact #skylineContainer,
+  body.ifline-studio-open .studio-compact #simTimeline { grid-column:1; min-width:0; }
+  body.ifline-studio-open .studio-compact #simTimeline { overflow:auto; }
+  .studio-compact #iflineStudioTopbar .badge { display:none; }
+  .studio-compact #iflineStudioTopbar #studioPanelToggle { display:inline-block; flex-shrink:0; }
+  body.ifline-studio-open.studio-tools-collapsed .studio-compact #iflineStudioTools { display:none; }
+  body.ifline-studio-open .studio-compact #iflineStudioHint { font-size:10px; left:8px; max-width:calc(100% - 16px); }
+  body.ifline-studio-open .studio-compact .studio-brand-title { font-size:12px; }
+  body.ifline-studio-open .studio-compact .studio-brand-subtitle { max-width:100%; }
   @media (max-width: 760px) {
     body { margin-top:20px; }
     .grid, .checks, .result-stats { grid-template-columns:1fr; }
     #skylineContainer { height:440px; }
     table { font-size:12px; display:block; overflow-x:auto; }
+    .ifline-layout, .ifline-fields, .comparison-grid, .ifline-entry { grid-template-columns:1fr; }
+    .comparison-verdict { grid-template-columns:46px minmax(0,1fr); }
+    .verdict-badge { grid-column:1 / -1; justify-self:start; }
+    .comparison-section-head { display:block; }
+    .comparison-section .section-insight { max-width:none; text-align:left; margin-top:3px; }
+    .impact-summary { grid-template-columns:1fr; }
+    .impact-row { grid-template-columns:58px minmax(100px,1fr) 94px; }
+    .ifline-fields .wide { grid-column:auto; }
+    #iflineMap { height:320px; }
   }
 </style>
 </head>
-<body>
+<body><p style="max-width:1180px;margin:20px auto"><a href="/assistant">打开 AI 分析助手 →</a></p>
 
-<div class="eyebrow">Melbourne Mobility Lab</div>
-<h1>MATSim 墨尔本交通仿真</h1>
-<p class="subtitle">从 OSM 路网与 ABS/VISTA 统计数据生成合成交通情景，在可交互的 3D 墨尔本中查看仿真拥堵和车辆运行。</p>
+<div class="eyebrow">Melbourne Mobility Lab · IF Line</div>
+<h1>城市交通政策实验室</h1>
+<p class="subtitle">先建立一个可复现的 MATSim 基线，再点击道路提出“如果这样改变会怎样”，用同一批合成人口、随机种子和仿真设置比较方案影响。</p>
 
 <section class="panel" id="preflightPanel">
   <div class="section-head">
@@ -150,7 +426,7 @@
 <div class="grid">
   <section class="panel">
     <h2>新建仿真</h2>
-    <p>CBD 是固定的小型完整演示；其余区域保留为实验选项，不代表已经完成同等验证。</p>
+    <p>CBD 用于可复现的局部实验；输入人口和路网范围须经过覆盖检查。其余区域仍为实验选项。运行成功不等于交通预测已校准；已有结果可在下方直接回放。</p>
     <label for="regionSelect">选择区域</label>
     <select id="regionSelect"><option>正在加载区域…</option></select>
     <button id="runButton" onclick="startPipeline()" disabled>生成交通仿真</button>
@@ -166,6 +442,80 @@
   </section>
 </div>
 
+<section class="panel" id="planningCases" hidden></section>
+
+<section class="panel ifline-panel" id="iflinePanel">
+  <div class="section-head">
+    <div>
+      <h2>IF Line · 3D 城市交通政策沙盘</h2>
+      <p style="margin:0">进入城市后自由画出新道路并填写设计参数，也可辅助调整现有道路。MATSim 会把空间草案变成可运行、可核对的网络分支。</p>
+    </div>
+    <span class="badge warning">实验性决策支持</span>
+  </div>
+  <div class="ifline-entry">
+    <div>
+      <label for="iflineBaselineSelect">对照基线</label>
+      <select id="iflineBaselineSelect" onchange="loadIfLineNetwork()">
+        <option value="">正在查找可复用基线…</option>
+      </select>
+      <button id="iflineStudioLaunch" class="studio-launch-button" onclick="openIfLineStudio()" disabled>进入 3D 规划沙盘</button>
+      <div class="muted" style="margin-top:8px">在城市中旋转、缩放和移动视角；直接点击地面连续绘制道路，不受预设路线限制。</div>
+    </div>
+    <div class="ifline-launch-card">
+      <strong>把规划动作直接放回城市空间</strong>
+      <ul>
+        <li>自己决定道路的起点、终点、走向和中间控制点。</li>
+        <li>自由填写车速、车道、容量和允许方式，草案会写入真实 MATSim 拓扑。</li>
+        <li>方案与基线分别保存，可回放、可比较、可追溯。</li>
+      </ul>
+    </div>
+  </div>
+
+  <details class="ifline-fallback" id="iflineFallback">
+    <summary>打开二维备用编辑器</summary>
+    <div class="ifline-layout" style="margin-top:14px">
+      <div>
+        <div class="ifline-fields">
+          <div class="wide">
+            <label for="iflineScenarioName">方案名称</label>
+            <input id="iflineScenarioName" type="text" maxlength="80" value="重点道路限速 30 km/h" aria-describedby="iflineScenarioHint">
+          </div>
+          <div>
+            <label for="iflineType">政策动作</label>
+            <select id="iflineType" onchange="updateIfLineValueField()">
+              <option value="speed_limit">调整限速</option>
+              <option value="capacity_scale">调整通行能力</option>
+              <option value="road_closure">机动车关闭</option>
+            </select>
+          </div>
+          <div id="iflineValueWrap">
+            <label for="iflineValue">目标值 <span id="iflineValueUnit">km/h</span></label>
+            <input id="iflineValue" type="number" min="5" max="130" step="5" value="30">
+          </div>
+        </div>
+        <label class="ifline-check">
+          <input id="iflineIncludeReverse" type="checkbox" checked onchange="refreshIfLineSelection()">
+          同时修改匹配的反向道路
+        </label>
+        <div id="iflineScenarioHint" class="muted">为保证可比性，方案会复用基线人口、MATSim 随机种子和迭代次数。</div>
+        <button id="iflineRunButton" onclick="startIfLine()" disabled>运行并比较这个方案</button>
+      </div>
+      <div>
+        <div class="ifline-map-wrap">
+          <svg id="iflineMap" viewBox="0 0 800 390" role="img" aria-label="点击选择一条机动车道路"></svg>
+          <div class="ifline-map-note">线宽表示车道/使用强度 · 点击道路选择</div>
+        </div>
+        <div id="iflineSelectedLink" class="selected-link">正在加载道路…</div>
+      </div>
+    </div>
+  </details>
+  <div id="iflineStatus" class="ifline-status"></div>
+  <div style="margin-top:14px">
+    <strong style="font-size:13px">已有方案分支</strong>
+    <div id="iflineBranchList" class="branch-list"><span class="muted">正在读取…</span></div>
+  </div>
+</section>
+
 <div id="status">
   <div id="statusText">运行中...</div>
 </div>
@@ -179,9 +529,63 @@
 </div>
 
 <div id="result" class="panel">
-  <h2>结果摘要</h2>
+  <h2 id="resultHeading">结果摘要</h2>
   <div id="resultRunName" class="muted"></div>
   <a id="runRecordLink" class="muted" href="#" target="_blank" rel="noopener" style="display:none">查看本次运行记录</a>
+  <section id="impactWorkbench" hidden></section>
+  <details id="iflineComparison" class="comparison-panel" aria-live="polite">
+    <summary>查看原始全天摘要（仅当前回放方案，不随上方筛选变化）</summary>
+    <div class="comparison-header">
+      <div>
+        <div class="comparison-kicker">Scenario impact</div>
+        <h3 style="margin:2px 0 0">运行时保存的全天对比</h3>
+        <div id="iflineComparisonTitle" class="muted"></div>
+      </div>
+      <a id="iflineEvidenceLink" class="muted" href="#" target="_blank" rel="noopener">查看方案证据</a>
+    </div>
+
+    <div id="iflineVerdictCard" class="comparison-verdict neutral">
+      <div id="iflineVerdictIcon" class="verdict-icon">≈</div>
+      <div>
+        <span class="comparison-kicker">本次 MATSim 对照结论</span>
+        <strong id="iflineVerdict">正在整理方案影响…</strong>
+        <p id="iflineVerdictDetail"></p>
+      </div>
+      <span id="iflineVerdictBadge" class="verdict-badge">正在计算</span>
+    </div>
+
+    <div id="iflineMetricComparisons" class="comparison-grid"></div>
+
+    <section class="comparison-section">
+      <div class="comparison-section-head">
+        <h4>出行方式分担</h4>
+        <div id="iflineModeInsight" class="section-insight"></div>
+      </div>
+      <div id="iflineModeBars"></div>
+      <div id="iflineModeLegend" class="mode-share-legend"></div>
+    </section>
+
+    <section class="comparison-section">
+      <div class="comparison-section-head">
+        <h4>路网影响扩散</h4>
+        <div id="iflineNetworkInsight" class="section-insight"></div>
+      </div>
+      <div id="iflineNetworkImpactSummary" class="impact-summary"></div>
+      <div id="iflineNetworkImpactBars" class="impact-list"></div>
+    </section>
+
+    <details class="comparison-raw">
+      <summary>查看各方式完整数值</summary>
+      <table>
+        <thead><tr><th>方式</th><th>基线占比</th><th>方案占比</th><th>占比变化</th><th>平均耗时变化</th></tr></thead>
+        <tbody id="iflineModeChanges"></tbody>
+      </table>
+    </details>
+    <div id="iflineControlsNote" class="comparison-note"></div>
+    <p style="margin:8px 0 0;font-size:11px">这是固定模型假设下的反事实筛选结果，不等于已校准预测，也不直接预测长期土地利用或城市发展。</p>
+  </details>
+
+  <h3 id="resultDetailHeading" style="display:none;margin-top:24px">方案运行数据</h3>
   <div class="result-stats">
     <div class="stat-card">总人数<span id="personCount"></span></div>
     <div class="stat-card">总出行次数<span id="totalTrips"></span></div>
@@ -193,41 +597,228 @@
     </thead>
     <tbody id="modeTableBody"></tbody>
   </table>
-  <h3>城市建造风格 · 交通数字孪生</h3>
-  <p style="color: #666; font-size: 14px;">真实墨尔本路网、地形与 MATSim 车辆数据，以城市建造游戏式的清晰分区和低多边形建筑呈现。深灰色是道路本体，上方彩色细带表示交通状态。拖动旋转、滚轮缩放，按 <b>WASD</b> 或方向键在城市中移动。</p>
-  <div class="scene-legend">
-    <span>道路拥堵程度：</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#3dad59"></span>畅通</span>
+  <h3 id="sceneHeading">3D 城市交通视图</h3>
+  <p id="sceneDescription" style="color: #666; font-size: 14px;">真实墨尔本路网、地形与 MATSim 车辆数据，以城市建造游戏式的清晰分区和低多边形建筑呈现。深灰色是道路本体，上方彩色细带表示交通状态。拖动旋转、滚轮缩放，按 <b>WASD</b> 或方向键在城市中移动。</p>
+  <p id="sceneCoverageNote" role="status" style="font-size:13px;color:#765019;"></p>
+  <div id="trafficLegend" class="scene-legend">
+    <span>全时段路段耗时 / 自由流耗时（汽车与骑行合计，固定显示刻度）：</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#3dad59"></span>1 倍</span>
     <span>→</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#e6b829"></span>缓行</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#e6b829"></span>1.2 倍</span>
     <span>→</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#d63035"></span>拥堵</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#d63035"></span>2 倍</span>
     <span>→</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#7a2e94"></span>严重拥堵</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#7a2e94"></span>3 倍</span>
     <span>→</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#1f141f"></span>近乎瘫痪</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#1f141f"></span>≥5 倍；灰色=未观测</span>
+  </div>
+  <div id="iflineLegend" class="scene-legend" style="display:none">
+    <span>与基线相比：</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#1f78f0"></span>直接干预道路</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#149e7a"></span>延误减少</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#7a858f"></span>无明显变化</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#d6332e"></span>延误增加</span>
   </div>
   <div class="scene-legend">
-    <span>建筑功能：</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#aa6f5c"></span>住宅</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#4f7588"></span>办公</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#c28b42"></span>商业</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#a99773"></span>公共建筑</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#687972"></span>工业</span>
+    <span>建筑用途示意（非逐栋实测）：</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#c7a590"></span>住宅</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#92aeba"></span>办公</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#c9b185"></span>商业</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#d2c8af"></span>公共建筑</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#acb7b0"></span>工业</span>
   </div>
-  <div id="skylineContainer"></div>
-  <div id="simTimeline" class="scene-controls">
-    <button id="simPlayPause">暂停</button>
-    <span id="simClock" style="font-size: 13px; color: #444; min-width: 52px;">00:00</span>
-    <span id="simActiveCars" style="font-size: 12px; color: #647084; min-width: 64px;">0 辆车</span>
-    <input id="simSlider" class="timeline-slider" type="range" min="0" max="1000" value="0">
-    <select id="simSpeed" aria-label="动画速度">
-      <option value="2">慢速</option>
-      <option value="4" selected>标准</option>
-      <option value="8">快速</option>
-    </select>
-    <button id="simViewCity" class="secondary-button">城市视角</button>
-    <button id="simViewTop" class="secondary-button">交通俯视</button>
+  <div class="scene-legend">
+    <span>地面（OSM 面状地物，非完整地籍）：</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#60805a"></span>公园</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#9b9c85"></span>商业用地</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#548b9b"></span>水域</span>
+  </div>
+  <div id="iflineStudioStage">
+    <header id="iflineStudioTopbar" class="studio-only">
+      <div class="studio-brand">
+        <div class="studio-brand-mark">IF</div>
+        <div style="min-width:0">
+          <div class="studio-brand-title">IF Line · 墨尔本交通政策沙盘</div>
+      <div id="iflineStudioBaselineLabel" class="studio-brand-subtitle">正在读取基线…</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button id="studioPanelToggle" type="button" aria-expanded="true" onclick="toggleCityPlanPanel()">参数面板</button>
+        <span class="badge warning">实验编辑模式</span>
+        <button onclick="closeIfLineStudio()">退出沙盘</button>
+      </div>
+    </header>
+
+    <div id="skylineContainer"></div>
+    <div id="iflineStudioHint" class="studio-only">点击城市放置道路节点 · 拖动旋转 · 滚轮缩放 · WASD 移动</div>
+
+    <aside id="iflineStudioTools" class="studio-only">
+      <h3>创造你的城市方案</h3>
+      <p>直接在 3D 城市里画出方案，而不是从预设答案里做选择。</p>
+
+      <section id="iflineStudioComparison" class="studio-result-card">
+        <div class="studio-result-kicker">MATSim 对照已完成</div>
+        <strong id="iflineStudioVerdict">方案影响已生成</strong>
+        <p id="iflineStudioVerdictDetail"></p>
+        <div class="studio-result-metrics">
+          <div>总体时间<strong id="iflineStudioOverallDelta">—</strong></div>
+          <div>汽车时间<strong id="iflineStudioCarDelta">—</strong></div>
+          <div>影响线路<strong id="iflineStudioLinksChanged">—</strong></div>
+        </div>
+        <button type="button" onclick="showFullIfLineComparison()">查看时段 / 走廊影响与导出报告</button>
+      </section>
+
+      <div class="studio-mode-switch" role="group" aria-label="编辑方式">
+        <button id="iflineStudioModeNew" type="button" class="active" onclick="setIfLineStudioMode('new_road')">＋ 自由绘制新道路</button>
+        <button id="iflineStudioModeExisting" type="button" onclick="setIfLineStudioMode('existing_road')">调整现有道路</button>
+      </div>
+
+      <section id="iflineStudioNewRoadPanel">
+        <div id="iflineNewRoadSelection" class="studio-draw-card">
+          <strong>从一个路口开始</strong>
+          点击地图放置节点。起点和终点会吸附到现有 MATSim 路网，中间点决定道路走向。
+        </div>
+        <div class="studio-draw-actions">
+          <button id="iflineDrawToggle" class="primary" type="button" onclick="toggleNewRoadDrawing()">暂停画路</button>
+          <button type="button" onclick="undoNewRoadPoint()">撤销一点</button>
+          <button type="button" onclick="clearNewRoadDraft()">全部清空</button>
+        </div>
+
+        <div class="road-workbench">
+          <strong>直接塑造道路</strong>
+          <div class="road-actions">
+            <button type="button" onclick="RoadEditor.view('plan')">俯视画路</button>
+            <button type="button" onclick="RoadEditor.view('oblique')">近看路线</button>
+            <button type="button" onclick="RoadEditor.view('side')">侧看高度</button>
+            <button id="roadEditUndo" type="button" onclick="RoadEditor.undo()">撤销编辑</button>
+            <button id="roadEditRedo" type="button" onclick="RoadEditor.redo()">重做编辑</button>
+          </div>
+          <label><input id="roadSnapEnabled" type="checkbox" checked>吸附附近路口（按住 Shift 临时关闭）</label>
+          <div id="roadEditorReadout" role="status">移动鼠标预览；拖动蓝色控制点改走向。空白处拖动旋转，右键单击撤回一点，Esc 暂停画路。</div>
+          <label>高架抬高 m <input id="roadBridgeHeight" type="number" min="1" max="50" step="1" value="8"></label>
+          <div class="road-actions">
+            <button id="roadMakeBridge" type="button" onclick="RoadEditor.bridge()">生成高架与两端过渡段</button>
+            <button type="button" onclick="RoadEditor.flatten()">恢复地面道路</button>
+          </div>
+          <svg id="roadProfile" viewBox="0 0 320 180" role="group" aria-label="道路高度编辑纵断面"></svg>
+          <div id="roadProfileHint">先画一条路线。拖动断面中的蓝点调高度；端点保持地面连接。</div>
+          <small>本版是相对地形抬高的概念高架，桥面仍随地形变化；不是独立桥面线形或净空测量。建筑不会自动删除。</small>
+        </div>
+
+        <div class="studio-parameter-grid">
+          <label>设计车速 km/h
+            <input id="iflineNewRoadSpeed" type="number" min="5" max="130" step="1" value="50" oninput="renderNewRoadDraft()">
+          </label>
+          <label>每方向车道数
+            <input id="iflineNewRoadLanes" type="number" min="1" max="8" step="1" value="2" oninput="renderNewRoadDraft()">
+          </label>
+          <label>每方向容量 /h
+            <input id="iflineNewRoadCapacity" type="number" min="100" max="20000" step="50" value="1800" oninput="renderNewRoadDraft()">
+          </label>
+          <label>节点吸附距离 m
+            <input id="iflineNewRoadSnap" type="number" min="5" max="500" step="5" value="120" oninput="renderNewRoadDraft()">
+          </label>
+        </div>
+        <label class="studio-check">
+          <input id="iflineNewRoadBidirectional" type="checkbox" checked onchange="renderNewRoadDraft()">
+          建设双向道路
+        </label>
+        <div class="studio-mode-checks" aria-label="允许方式">
+          <label><input type="checkbox" id="iflineNewRoadCar" checked disabled>汽车</label>
+          <label><input type="checkbox" id="iflineNewRoadBike" checked onchange="renderNewRoadDraft()">自行车</label>
+          <label><input type="checkbox" id="iflineNewRoadWalk" checked onchange="renderNewRoadDraft()">步行</label>
+        </div>
+        <span class="studio-draw-note">蓝线是待检查的草案，点击检查会自动纳入方案。地面交叉会接成路口；高架中段不与地面道路接通。高度为相对地面的米数，两端须为 0。</span>
+        <div id="planPoints"></div>
+      </section>
+
+      <section id="iflineStudioExistingRoadPanel" style="display:none">
+        <div id="iflineStudioSelection" class="studio-selection">
+          <strong>尚未选择道路</strong>
+          点击道路后，这里会显示实际 MATSim link 参数。
+        </div>
+
+        <label>辅助政策动作</label>
+        <div class="studio-tool-tabs" role="group" aria-label="政策动作">
+          <button type="button" data-studio-type="speed_limit" class="active" onclick="setStudioIntervention('speed_limit')">限速</button>
+          <button type="button" data-studio-type="capacity_scale" onclick="setStudioIntervention('capacity_scale')">容量</button>
+          <button type="button" data-studio-type="road_closure" onclick="setStudioIntervention('road_closure')">封路</button>
+        </div>
+
+        <div id="iflineStudioValueWrap">
+          <label for="iflineStudioValue">目标值 <span id="iflineStudioUnit">km/h</span></label>
+          <div class="studio-value-row">
+            <input id="iflineStudioRange" type="range" min="5" max="130" step="5" value="30" oninput="updateStudioValue(this.value)">
+            <input id="iflineStudioValue" type="number" min="5" max="130" step="5" value="30" oninput="updateStudioValue(this.value, true)">
+          </div>
+        </div>
+
+        <label class="studio-check">
+          <input id="iflineStudioReverse" type="checkbox" checked onchange="updateStudioReverse()">
+          同时修改匹配的反向道路
+        </label>
+
+        <div id="iflineStudioPreview" class="studio-preview">
+          <strong>方案预览</strong>
+          请选择道路。这里显示的是参数变化；交通效果必须运行 MATSim 后才能确认。
+        </div>
+      </section>
+
+      <label for="iflineStudioName">方案名称</label>
+      <input id="iflineStudioName" type="text" maxlength="80" value="自定义城市道路方案">
+      <section id="cityPlanPanel" style="margin:14px 0;border-top:1px solid #506578;padding-top:12px">
+        <strong>多项交通方案 · 实验性</strong>
+        <div class="studio-draw-actions">
+          <button id="planAdd" type="button" onclick="cityPlanAdd()">将当前修改加入方案</button>
+          <button id="planUndo" type="button" onclick="cityPlanHistory('undo')">撤销方案修改</button>
+          <button id="planRedo" type="button" onclick="cityPlanHistory('redo')">重做</button>
+          <button type="button" onclick="cityPlanSave()">保存草案</button>
+          <button type="button" onclick="cityPlanLoad()">读取草案</button>
+        </div>
+        <div id="planSaveStatus" role="status"></div>
+        <ol id="planOperations"></ol>
+        <button id="planCheck" type="button" onclick="cityPlanCheck()">检查当前路线与方案的冲突</button>
+        <p style="font-size:13px;color:#c5dae5">当前画好的路线会自动加入 / 更新方案，无需先点“加入方案”。检查不启动仿真。</p>
+        <strong id="planConflictSummary" role="status" aria-live="polite">建筑冲突：尚未检查</strong>
+        <div id="planConflicts" style="max-height:240px;overflow:auto" aria-label="建筑冲突列表"></div>
+        <div id="planReport" role="status" aria-live="polite">画好路线后即可检查。</div>
+        <label id="planAcknowledgement" class="studio-check" hidden>
+          <input id="planAck" type="checkbox" onchange="refreshStudioRunButton()">
+          我已查看建筑冲突，理解这只是交通概念试验，不代表可施工；不自动拆除建筑。
+        </label>
+      </section>
+      <button type="button" onclick="if(!cityPlanBusy())openIfLineStudio()">返回基线继续编辑</button>
+      <button id="iflineStudioRun" onclick="cityPlanRun()" disabled>运行 MATSim 并与基线比较</button>
+      <div id="planRunHint" role="status" aria-live="polite" style="padding:10px 0;color:#d8e8f2;font-size:14px"></div>
+      <div id="iflineStudioStatus"></div>
+      <p style="margin-top:12px">当前会把你画出的道路写入独立路网分支，并复用同一批人口和随机种子。诱发需求和长期土地利用变化暂不在本次计算范围内。</p>
+    </aside>
+
+    <div id="simTimeline" class="scene-controls">
+      <div class="playback-row">
+      <button id="simPlayPause">暂停</button>
+      <span id="simClock" style="font-size: 13px; color: #444; min-width: 52px;">00:00</span>
+      <span id="simActiveCars" style="font-size: 12px; color: #647084; min-width: 64px;">0 辆车</span>
+      <input id="simSlider" class="timeline-slider" type="range" min="0" max="1000" value="0">
+      <select id="simSpeed" aria-label="动画速度">
+        <option value="2">慢速</option>
+        <option value="4" selected>标准</option>
+        <option value="8">快速</option>
+      </select>
+      </div>
+      <div class="playback-row">
+      <select id="simDensity" aria-label="车辆显示密度" aria-describedby="simDensityNote">
+        <option value="1" selected>真实回放 1:1</option>
+        <option value="3">车流增强 · 最多3倍（示意）</option>
+        <option value="5">车流增强 · 最多5倍（示意）</option>
+      </select>
+      <button id="simViewCity" class="secondary-button">城市视角</button>
+      <button id="simViewDistrict" class="secondary-button">街区细看</button>
+      <button id="simViewTop" class="secondary-button">交通俯视</button>
+      <button id="simViewImpact" class="secondary-button" style="display:none">定位干预</button>
+      </div>
+      <span id="simDensityNote" class="playback-note">1:1 为真实仿真车辆；增强仅增加轨迹示意车，不改变交通统计。车模尺寸为展示比例。</span>
+    </div>
   </div>
 
   <h3>图表</h3>
@@ -235,10 +826,35 @@
   <img id="scorestatsChart" alt="平均得分随迭代轮数的变化">
 </div>
 
+<script src="/static/impact-ui.js"></script>
+<script src="/static/viewer-lifecycle.js"></script>
+<script src="/static/planning-cases.js"></script>
+<link rel="stylesheet" href="/static/impact.css">
 <script>
 let systemCanRun = false;
 let activeViewer = null;
-let activeSceneRequest = null;
+let activeSceneLoad = null;
+let sceneVisibility = null;
+function disposeDisplayedScene() {
+  sceneVisibility?.dispose();sceneVisibility=null;
+  activeSceneLoad?.dispose();activeSceneLoad=null;
+  activeViewer=null;
+}
+function ensureDisplayedScene() { return activeSceneLoad?.ensure() || Promise.resolve(null); }
+let iflineMapData = null;
+let iflineNetworkSequence = 0;
+let iflineSelectedLinkId = null;
+let iflineLinkElements = new Map();
+let iflineStudioOpen = false;
+let iflineStudioSelectionOverlays = [];
+let iflineStudioDetachPicker = null;
+let iflineStudioLoading = false;
+let iflineSubmittedLinkId = null;
+let iflineStudioMode = 'new_road';
+let iflineNewRoadPoints = [];
+let iflineNewRoadOverlay = null;
+let iflineNewRoadDrawing = true;
+let iflineNetworkNodes = [];
 
 async function apiJson(url, options = {}) {
   const response = await fetch(url, options);
@@ -339,6 +955,1080 @@ async function loadRuns() {
   }
 }
 
+function hasMeasurement(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+}
+
+function formatSigned(value, digits = 1, suffix = '') {
+  if (!hasMeasurement(value)) return '无有效数据';
+  const number = Number(value || 0);
+  const sign = number > 0.000001 ? '+' : number < -0.000001 ? '−' : '';
+  return `${sign}${Math.abs(number).toFixed(digits)}${suffix}`;
+}
+
+function formatTimeDelta(seconds) {
+  if (!hasMeasurement(seconds)) return '无有效数据';
+  const absolute = Math.abs(Number(seconds || 0));
+  if (absolute >= 60) return formatSigned(Number(seconds) / 60, 1, ' 分钟');
+  if (absolute > 0 && absolute < 10) return formatSigned(Number(seconds), 1, ' 秒');
+  return formatSigned(Number(seconds), 0, ' 秒');
+}
+
+function deltaClass(value, lowerIsBetter = true) {
+  if (!hasMeasurement(value)) return 'delta-neutral';
+  const number = Number(value || 0);
+  if (Math.abs(number) < 0.000001) return 'delta-neutral';
+  const better = lowerIsBetter ? number < 0 : number > 0;
+  return better ? 'delta-better' : 'delta-worse';
+}
+
+function formatDurationValue(seconds) {
+  if (!hasMeasurement(seconds)) return '无有效数据';
+  const value = Math.max(0, Number(seconds || 0));
+  if (value >= 3600) return `${(value / 3600).toFixed(1)} 小时`;
+  if (value >= 60) {
+    let minutes = Math.floor(value / 60);
+    let remainder = Math.round(value % 60);
+    if (remainder === 60) { minutes += 1; remainder = 0; }
+    return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`;
+  }
+  return `${value.toFixed(value > 0 && value < 10 ? 1 : 0)} 秒`;
+}
+
+function formatDistanceValue(metres) {
+  if (!hasMeasurement(metres)) return '无有效数据';
+  const value = Math.max(0, Number(metres || 0));
+  return value >= 1000 ? `${(value / 1000).toFixed(2)} 公里` : `${value.toFixed(0)} 米`;
+}
+
+function relativeDeltaPercent(baseline, proposal) {
+  if (!hasMeasurement(baseline) || !hasMeasurement(proposal)) return null;
+  const base = Number(baseline || 0);
+  if (Math.abs(base) < 0.000001) return null;
+  return ((Number(proposal || 0) - base) / Math.abs(base)) * 100;
+}
+
+function formatPercentDelta(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '';
+  const number = Number(value);
+  if (Math.abs(number) < 0.05) return '0.0%';
+  return `${number > 0 ? '+' : '−'}${Math.abs(number).toFixed(1)}%`;
+}
+
+function appendComparisonMetric(container, options) {
+  const card = document.createElement('article');
+  card.className = 'comparison-card';
+  const title = document.createElement('div');
+  title.className = 'metric-title';
+  const label = document.createElement('span');
+  label.textContent = options.label;
+  const hint = document.createElement('span');
+  hint.textContent = options.hint || '';
+  title.append(label, hint);
+
+  const values = document.createElement('div');
+  values.className = 'metric-values';
+  const baseline = document.createElement('div');
+  baseline.className = 'metric-value';
+  const baselineLabel = document.createElement('span');
+  baselineLabel.textContent = '基线';
+  const baselineValue = document.createElement('strong');
+  baselineValue.textContent = options.formatValue(options.baseline);
+  baseline.append(baselineLabel, baselineValue);
+  const arrow = document.createElement('div');
+  arrow.className = 'metric-arrow';
+  arrow.textContent = '→';
+  const proposal = document.createElement('div');
+  proposal.className = 'metric-value';
+  const proposalLabel = document.createElement('span');
+  proposalLabel.textContent = '方案';
+  const proposalValue = document.createElement('strong');
+  proposalValue.textContent = options.formatValue(options.proposal);
+  proposal.append(proposalLabel, proposalValue);
+  values.append(baseline, arrow, proposal);
+
+  const delta = document.createElement('div');
+  delta.className = `metric-delta ${deltaClass(options.delta, options.lowerIsBetter !== false)}`;
+  const percent = options.percent === null || options.percent === undefined
+    ? '' : ` · ${formatPercentDelta(options.percent)}`;
+  delta.textContent = `变化 ${options.formatDelta(options.delta)}${percent}`;
+  card.append(title, values, delta);
+  container.appendChild(card);
+}
+
+function comparisonVerdict(comparison) {
+  const car = (comparison.mode_changes || []).find(row => row.mode === 'car');
+  const baseline = car ? car.baseline_avg_time_seconds : comparison.baseline.avg_trip_time_seconds;
+  const proposal = car ? car.proposal_avg_time_seconds : comparison.proposal.avg_trip_time_seconds;
+  if (!hasMeasurement(baseline) || !hasMeasurement(proposal)) {
+    return {tone:'neutral', icon:'—', title:'缺少有效测量，无法比较', badge:'无有效数据', baseline, proposal, delta:null, percent:null};
+  }
+  const delta = proposal - baseline;
+  const percent = car && car.avg_time_delta_percent !== undefined
+    ? car.avg_time_delta_percent : relativeDeltaPercent(baseline, proposal);
+  const magnitude = Math.abs(Number(percent || 0));
+  const metricName = car ? '汽车平均出行时间' : '全方式平均出行时间';
+  let tone = 'neutral';
+  let strength = '基本不变';
+  if (magnitude >= 0.5 || Math.abs(delta) >= 2) {
+    tone = delta < 0 ? 'better' : 'worse';
+    strength = magnitude >= 5 ? '显著' : magnitude >= 2 ? '明显' : '轻微';
+  }
+  const direction = delta < 0 ? '缩短' : '增加';
+  return {
+    tone,
+    icon: tone === 'better' ? '↓' : tone === 'worse' ? '↑' : '≈',
+    title: tone === 'neutral'
+      ? `${metricName}基本不变`
+      : `${metricName}${strength}${direction} ${formatDurationValue(Math.abs(delta))}`,
+    badge: tone === 'neutral' ? '变化很小' : `${delta < 0 ? '−' : '+'}${magnitude.toFixed(1)}%`,
+    baseline,
+    proposal,
+    delta,
+    percent,
+  };
+}
+
+function showFullIfLineComparison() {
+  closeIfLineStudio();
+  requestAnimationFrame(() => {
+    const workbench = document.getElementById('impactWorkbench');
+    (workbench.hidden ? document.getElementById('iflineComparison') : workbench)
+      .scrollIntoView({ behavior:'smooth', block:'start' });
+  });
+}
+
+async function loadIfLineBaselines() {
+  const select = document.getElementById('iflineBaselineSelect');
+  const studioLaunch = document.getElementById('iflineStudioLaunch');
+  const previous = select.value;
+  studioLaunch.disabled = true;
+  try {
+    const data = await apiJson('/ifline/baselines');
+    select.innerHTML = '';
+    if (!data.baselines.length) {
+      select.innerHTML = '<option value="">还没有带运行记录的完整基线</option>';
+      document.getElementById('iflineSelectedLink').textContent = '先运行上方固定 CBD 演示，才能创建可核对的政策分支。';
+      document.getElementById('iflineRunButton').disabled = true;
+      return;
+    }
+    for (const baseline of data.baselines) {
+      const option = document.createElement('option');
+      option.value = baseline.id;
+      option.textContent = baseline.is_ifline
+        ? `方案分支 · ${baseline.label}`
+        : `有记录基线 · ${baseline.label}`;
+      if (baseline.id === previous) option.selected = true;
+      select.appendChild(option);
+    }
+    // A completed policy branch is reusable, but on a fresh page the safest
+    // comparison anchor is the latest recorded non-IF baseline. Preserve an
+    // explicit user selection; otherwise avoid silently chaining scenarios.
+    if (!previous) {
+      const verifiedBaseline = data.baselines.find(baseline => !baseline.is_ifline);
+      if (verifiedBaseline) select.value = verifiedBaseline.id;
+    }
+    await loadIfLineNetwork();
+  } catch (error) {
+    select.innerHTML = '<option value="">基线读取失败</option>';
+    document.getElementById('iflineSelectedLink').textContent = error.message;
+    document.getElementById('iflineRunButton').disabled = true;
+    studioLaunch.disabled = true;
+  }
+}
+
+async function loadIfLineScenarios() {
+  const list = document.getElementById('iflineBranchList');
+  try {
+    const data = await apiJson('/ifline/scenarios?limit=20');
+    list.innerHTML = '';
+    if (!data.scenarios.length) {
+      const empty = document.createElement('span');
+      empty.className = 'muted';
+      empty.textContent = '尚未创建方案；第一次结果会出现在这里。';
+      list.appendChild(empty);
+      return;
+    }
+    for (const scenario of data.scenarios) {
+      const element = document.createElement(scenario.status === 'completed' ? 'button' : 'span');
+      element.className = 'branch-chip';
+      const symbol = scenario.status === 'completed' ? '✓' : scenario.status === 'failed' ? '×' : '…';
+      const timeDelta = scenario.delta ? ` · ${formatTimeDelta(scenario.delta.avg_trip_time_seconds)}` : '';
+      element.textContent = `${symbol} ${scenario.name || scenario.scenario_id}${timeDelta}`;
+      element.title = `基线：${scenario.baseline_run || '未知'} · 状态：${scenario.status}`;
+      if (scenario.status === 'completed' && scenario.proposal_run) {
+        element.addEventListener('click', () => openIfLineResult(scenario.proposal_run));
+      }
+      list.appendChild(element);
+    }
+  } catch (error) {
+    list.textContent = `方案记录读取失败：${error.message}`;
+  }
+}
+
+async function openIfLineResult(runName) {
+  document.getElementById('error').style.display = 'none';
+  try {
+    const data = await apiJson(`/runs/${encodeURIComponent(runName)}`);
+    await showResult(data);
+  } catch (error) {
+    showError('无法打开这个方案结果', error.message);
+  }
+}
+
+function renderIfLineMap() {
+  if (!document.getElementById('iflineFallback').open) return;
+  const svg = document.getElementById('iflineMap');
+  svg.innerHTML = '';
+  iflineLinkElements = new Map();
+  if (!iflineMapData || !iflineMapData.links.length) return;
+
+  const width = 800, height = 390, pad = 18;
+  const bounds = iflineMapData.bounds;
+  const spanX = Math.max(1, bounds.max_x - bounds.min_x);
+  const spanY = Math.max(1, bounds.max_y - bounds.min_y);
+  const maxVolume = Math.max(1, ...iflineMapData.links.map(link => link.volume || 0));
+  const toX = x => pad + ((x - bounds.min_x) / spanX) * (width - pad * 2);
+  const toY = y => height - pad - ((y - bounds.min_y) / spanY) * (height - pad * 2);
+  const ordered = [...iflineMapData.links].sort((a, b) => (a.volume || 0) - (b.volume || 0));
+
+  for (const link of ordered) {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    const activity = Math.sqrt((link.volume || 0) / maxVolume);
+    const carEditable = linkSupportsCar(link);
+    line.setAttribute('x1', toX(link.x1));
+    line.setAttribute('y1', toY(link.y1));
+    line.setAttribute('x2', toX(link.x2));
+    line.setAttribute('y2', toY(link.y2));
+    line.setAttribute('stroke', carEditable
+      ? (activity > 0.68 ? '#596d7d' : '#8798a5')
+      : ((link.modes || []).includes('bike') ? '#8b937a' : '#a59d8c'));
+    line.setAttribute('stroke-width', carEditable
+      ? (0.7 + Math.min(2.1, (link.lanes || 1) * 0.34) + activity * 1.25).toFixed(2)
+      : '0.75');
+    line.setAttribute('opacity', carEditable ? (0.26 + activity * 0.57).toFixed(2) : '0.42');
+    line.setAttribute('vector-effect', 'non-scaling-stroke');
+    line.addEventListener('click', () => selectIfLineLink(link.id));
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = `${link.road_type} · link ${link.id} · ${(link.modes || []).join('/')} · ` +
+      `${carEditable ? `${link.speed_kph} km/h · 基线流量 ${link.volume}` : '非机动车路径'}`;
+    line.appendChild(title);
+    svg.appendChild(line);
+    iflineLinkElements.set(String(link.id), line);
+  }
+}
+
+function matchingReverseLink(link) {
+  if (!iflineMapData || !document.getElementById('iflineIncludeReverse').checked) return null;
+  return iflineMapData.links.find(candidate =>
+    String(candidate.id) !== String(link.id) && candidate.from === link.to && candidate.to === link.from
+  ) || null;
+}
+
+function selectIfLineLink(linkId) {
+  if (!iflineMapData) return;
+  const link = iflineMapData.links.find(item => String(item.id) === String(linkId));
+  if (!link) return;
+  iflineSelectedLinkId = String(link.id);
+  for (const element of iflineLinkElements.values()) {
+    element.classList.remove('selected', 'reverse-selected');
+  }
+  const selectedElement = iflineLinkElements.get(iflineSelectedLinkId);
+  if (selectedElement) selectedElement.classList.add('selected');
+  const reverse = matchingReverseLink(link);
+  if (reverse) {
+    const reverseElement = iflineLinkElements.get(String(reverse.id));
+    if (reverseElement) reverseElement.classList.add('reverse-selected');
+  }
+  const directionText = reverse ? `；同时匹配反向 link ${reverse.id}` : '；仅此方向';
+  const carEditable = linkSupportsCar(link);
+  const modeText = (link.modes || []).join('、') || '未标注';
+  document.getElementById('iflineSelectedLink').textContent =
+    `已选 ${link.road_type} · link ${link.id}${directionText} · ${link.length_m.toFixed(0)} 米 · ` +
+    `${link.speed_kph.toFixed(1)} km/h · ${link.lanes.toFixed(1)} 车道 · 方式 ${modeText} · ` +
+    `${carEditable ? `基线进入 ${link.volume} 次` : '当前不是机动车 link'}`;
+  document.getElementById('iflineRunButton').disabled = !carEditable;
+  suggestIfLineName();
+  renderIfLineStudioSelection();
+}
+
+function refreshIfLineSelection() {
+  if (iflineSelectedLinkId) selectIfLineLink(iflineSelectedLinkId);
+}
+
+function suggestIfLineName() {
+  const name = document.getElementById('iflineScenarioName');
+  if (name.dataset.userEdited === 'true' || !iflineSelectedLinkId) return;
+  const type = document.getElementById('iflineType').value;
+  const value = Number(document.getElementById('iflineValue').value);
+  if (type === 'speed_limit') name.value = `道路 ${iflineSelectedLinkId} 限速调整为 ${value} km/h`;
+  if (type === 'capacity_scale') name.value = `道路 ${iflineSelectedLinkId} 通行能力调整为 ${value}%`;
+  if (type === 'road_closure') name.value = `道路 ${iflineSelectedLinkId} 机动车关闭`;
+}
+
+function updateIfLineValueField() {
+  const type = document.getElementById('iflineType').value;
+  const wrap = document.getElementById('iflineValueWrap');
+  const input = document.getElementById('iflineValue');
+  const unit = document.getElementById('iflineValueUnit');
+  if (type === 'road_closure') {
+    wrap.style.display = 'none';
+  } else {
+    wrap.style.display = 'block';
+    if (type === 'speed_limit') {
+      unit.textContent = 'km/h';
+      input.min = 5; input.max = 130; input.step = 5;
+      if (input.dataset.kind !== type) input.value = 30;
+    } else {
+      unit.textContent = '基线的 %';
+      input.min = 1; input.max = 300; input.step = 5;
+      if (input.dataset.kind !== type) input.value = 120;
+    }
+  }
+  input.dataset.kind = type;
+  suggestIfLineName();
+}
+
+function selectedIfLineLink() {
+  if (!iflineMapData || !iflineSelectedLinkId) return null;
+  return iflineMapData.links.find(link => String(link.id) === String(iflineSelectedLinkId)) || null;
+}
+
+function linkSupportsCar(link) {
+  return Boolean(link && link.car_editable !== false && (link.modes || []).includes('car'));
+}
+
+function setIfLineStatusMessage(message, visible = true) {
+  for (const id of ['iflineStatus', 'iflineStudioStatus']) {
+    const element = document.getElementById(id);
+    if (!element) continue;
+    element.textContent = message;
+    element.style.display = visible ? 'block' : 'none';
+  }
+}
+
+function rebuildIfLineNetworkNodes() {
+  const unique = new Map();
+  for (const link of (iflineMapData && iflineMapData.links) || []) {
+    // A new motor road must connect into the motor network.  Walk/bike-only
+    // nodes remain selectable for inspection but are not valid road endpoints.
+    if (!linkSupportsCar(link)) continue;
+    unique.set(String(link.from), { id:String(link.from), x:Number(link.x1), y:Number(link.y1) });
+    unique.set(String(link.to), { id:String(link.to), x:Number(link.x2), y:Number(link.y2) });
+  }
+  iflineNetworkNodes = [...unique.values()];
+}
+
+function currentSceneTransform() {
+  const explicit = activeViewer && activeViewer.userData.coordinateTransform;
+  if (explicit && Number(explicit.scene_units_per_metre) > 0) return explicit;
+  if (!iflineMapData) return null;
+  const bounds = iflineMapData.bounds;
+  const span = Math.max(bounds.max_x - bounds.min_x, bounds.max_y - bounds.min_y) || 1;
+  return {
+    network_crs:'EPSG:7899',
+    center_x:(bounds.min_x + bounds.max_x) / 2,
+    center_y:(bounds.min_y + bounds.max_y) / 2,
+    scene_units_per_metre:400 / span,
+  };
+}
+
+function sceneToNetworkPoint(sceneX, sceneZ) {
+  const transform = currentSceneTransform();
+  if (!transform) return null;
+  return {
+    x:sceneX / transform.scene_units_per_metre + transform.center_x,
+    y:sceneZ / transform.scene_units_per_metre + transform.center_y,
+  };
+}
+
+function networkToScenePoint(x, y) {
+  const transform = currentSceneTransform();
+  if (!transform) return null;
+  return {
+    x:(x - transform.center_x) * transform.scene_units_per_metre,
+    z:(y - transform.center_y) * transform.scene_units_per_metre,
+  };
+}
+
+function nearestIfLineNode(x, y) {
+  if (!iflineNetworkNodes.length) rebuildIfLineNetworkNodes();
+  let best = null;
+  let bestSquared = Infinity;
+  for (const node of iflineNetworkNodes) {
+    const squared = (node.x - x) ** 2 + (node.y - y) ** 2;
+    if (squared < bestSquared) { best = node; bestSquared = squared; }
+  }
+  return best ? { ...best, distance:Math.sqrt(bestSquared) } : null;
+}
+
+function currentNewRoadSnapTolerance() {
+  const value = Number(document.getElementById('iflineNewRoadSnap').value);
+  return Number.isFinite(value) ? Math.max(5, Math.min(500, value)) : 120;
+}
+
+function resnapNewRoadPoints() {
+  const tolerance = currentNewRoadSnapTolerance();
+  for (const point of iflineNewRoadPoints) {
+    const nearest = nearestIfLineNode(point.raw_x, point.raw_y);
+    const canSnap=point.snap_enabled!==false;
+    const snapped = Boolean(!point.height_m && nearest && nearest.distance <= (canSnap?tolerance:1e-5));
+    const x = snapped ? nearest.x : point.raw_x;
+    const y = snapped ? nearest.y : point.raw_y;
+    const scenePoint = networkToScenePoint(x, y);
+    point.x = x;
+    point.y = y;
+    point.scene_x = scenePoint ? scenePoint.x : point.scene_x;
+    point.scene_z = scenePoint ? scenePoint.z : point.scene_z;
+    point.snapped = snapped;
+    point.node_id = snapped ? nearest.id : null;
+    point.snap_distance_m = snapped ? nearest.distance : (nearest ? nearest.distance : null);
+  }
+}
+
+function newRoadDraftLength() {
+  let total = 0;
+  for (let i = 1; i < iflineNewRoadPoints.length; i++) {
+    const a = iflineNewRoadPoints[i - 1], b = iflineNewRoadPoints[i];
+    total += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return total;
+}
+
+function refreshStudioRunButton() {
+  // Inline page initialization can run before the deferred planning adapter.
+  // Keep the HTML's disabled default until that sole action owner is loaded.
+  if(typeof cityPlanRefreshActions==='function')cityPlanRefreshActions();
+}
+
+function clearNewRoadOverlay() {
+  if (!iflineNewRoadOverlay) return;
+  if (iflineNewRoadOverlay.parent) iflineNewRoadOverlay.parent.remove(iflineNewRoadOverlay);
+  iflineNewRoadOverlay.traverse(object => {
+    if (object.geometry) object.geometry.dispose();
+    if (object.material) object.material.dispose();
+  });
+  iflineNewRoadOverlay = null;
+  activeViewer?.userData.requestRender?.();
+}
+
+function renderNewRoadOverlay() {
+  clearNewRoadOverlay();
+  if (!activeViewer || activeViewer.userData.isDifferenceScene || !activeViewer.userData.groundY) return;
+  const groundY = activeViewer.userData.groundY;
+  const group = new THREE.Group();
+  group.userData.iflineEditorOverlay = true;
+  const lineMat = new THREE.MeshBasicMaterial({
+    color:0x299cff, transparent:true, opacity:0.94,
+    depthTest:true, depthWrite:false, toneMapped:false,
+  });
+  const sceneScale=currentSceneTransform().scene_units_per_metre;
+  const addPreview=(a,b,width,color)=>{
+    const material=lineMat.clone();material.color.setHex(color);
+    const segment=CityRoadMesh.create(THREE,a,b,width,0.12,material,groundY,
+      (a.height_m||0)*sceneScale,(b.height_m||0)*sceneScale,0.72);
+    if(segment)group.add(segment);else material.dispose();
+  };
+  if(typeof cityPlanOverlayRoads==='function') for(const road of cityPlanOverlayRoads()) {
+    for(const [p,q] of road.segments) {
+      const a=networkToScenePoint(p[0],p[1]),b=networkToScenePoint(q[0],q[1]);
+      a.height_m=p[2];b.height_m=q[2];addPreview(a,b,road.width_m*sceneScale,0x1bafa1);
+    }
+  }
+  const draftWidth=(Number(document.getElementById('iflineNewRoadLanes').value)*3.5*
+    (document.getElementById('iflineNewRoadBidirectional').checked?2:1)+2)*sceneScale;
+  if(iflineStudioMode==='new_road') for (let i = 1; i < iflineNewRoadPoints.length; i++) {
+    const a=iflineNewRoadPoints[i-1],b=iflineNewRoadPoints[i];
+    addPreview({x:a.scene_x,z:a.scene_z,height_m:a.height_m},
+      {x:b.scene_x,z:b.scene_z,height_m:b.height_m},draftWidth,0x299cff);
+  }
+  lineMat.dispose();
+  iflineNewRoadPoints.forEach((point, index) => {
+    const endpoint = index === 0 || index === iflineNewRoadPoints.length - 1;
+    const color = endpoint ? (point.snapped ? 0x39d98a : 0xffa638) : (point.snapped ? 0x79d7ff : 0x2da5ff);
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(endpoint ? 1.65 : 1.25, 14, 9),
+      new THREE.MeshBasicMaterial({ color, depthTest:true, toneMapped:false }),
+    );
+    marker.position.set(point.scene_x, groundY(point.scene_x, point.scene_z) + 1.5 + (point.height_m||0)*sceneScale, point.scene_z);
+    marker.renderOrder = 125;
+    marker.userData.roadControlIndex=index;
+    group.add(marker);
+  });
+  activeViewer.add(group);
+  iflineNewRoadOverlay = group;
+  activeViewer.userData.requestRender?.();
+}
+
+function renderNewRoadDraft() {
+  if (!document.getElementById('iflineNewRoadSelection')) return;
+  resnapNewRoadPoints();
+  const summary = document.getElementById('iflineNewRoadSelection');
+  const length = newRoadDraftLength();
+  const count = iflineNewRoadPoints.length;
+  const first = count ? iflineNewRoadPoints[0] : null;
+  const last = count ? iflineNewRoadPoints[count - 1] : null;
+  let title = '从一个路口开始';
+  let detail = '点击地图放置节点。起点和终点必须吸附到现有路网。';
+  if (count === 1) {
+    title = first.snapped ? `起点已接入节点 ${first.node_id}` : '起点尚未接入路网';
+    detail = first.snapped
+      ? '继续点击来决定道路走向；最后一个点也必须接入现有路网。'
+      : `离最近节点约 ${Math.round(first.snap_distance_m || 0)} 米，请增大吸附距离或撤销后点得更靠近路口。`;
+  } else if (count >= 2) {
+    const endpointsReady = first.snapped && last.snapped && first.node_id !== last.node_id;
+    title = endpointsReady ? `道路草案 · ${Math.round(length)} 米 · 可直接检查冲突` : '道路草案还没有完整接网';
+    detail = `${count} 个控制点 · 起点${first.snapped ? '已接入' : '未接入'} · ` +
+      `终点${last.snapped ? '已接入' : '未接入'} · ${document.getElementById('iflineNewRoadBidirectional').checked ? '双向' : '单向'}`;
+  }
+  summary.innerHTML = '';
+  const heading = document.createElement('strong');
+  heading.textContent = title;
+  const text = document.createElement('span');
+  text.textContent = detail;
+  summary.append(heading, text);
+  const toggle = document.getElementById('iflineDrawToggle');
+  toggle.textContent = iflineNewRoadDrawing ? '暂停画路' : '继续画路';
+  toggle.classList.toggle('primary', iflineNewRoadDrawing);
+  const nameInput = document.getElementById('iflineStudioName');
+  if (nameInput.dataset.userEdited !== 'true') {
+    const lanes = Number(document.getElementById('iflineNewRoadLanes').value) || 1;
+    const laneLabel = Number.isInteger(lanes) ? lanes : lanes.toFixed(1);
+    const suggestion = count >= 2
+      ? `自定义新道路 · ${Math.round(length)} 米 · 每方向 ${laneLabel} 车道`
+      : '自定义城市道路方案';
+    nameInput.value = suggestion;
+    document.getElementById('iflineScenarioName').value = suggestion;
+    document.getElementById('iflineScenarioName').dataset.userEdited = 'false';
+  }
+  renderNewRoadOverlay();
+  if(typeof cityPlanPoints==='function')cityPlanPoints();
+  if(window.RoadEditor)RoadEditor.refresh();
+  refreshStudioRunButton();
+}
+
+function undoNewRoadPoint() {
+  if(typeof cityPlanBusy==='function' && cityPlanBusy())return;
+  if(window.RoadEditor)RoadEditor.remember();
+  iflineNewRoadPoints.pop();
+  renderNewRoadDraft();
+}
+
+function clearNewRoadDraft() {
+  if(typeof cityPlanBusy==='function' && cityPlanBusy())return;
+  if(window.RoadEditor)RoadEditor.remember();
+  iflineNewRoadPoints = [];
+  if(typeof cityPlanEditing!=='undefined'){cityPlanEditing=null;cityPlanMoveIndex=null;cityPlanRefresh();}
+  renderNewRoadDraft();
+  setIfLineStatusMessage('道路草案已清空。点击城市中的路口开始自由绘制。');
+}
+
+function toggleNewRoadDrawing() {
+  iflineNewRoadDrawing = !iflineNewRoadDrawing;
+  if(window.RoadEditor)RoadEditor.clearHover();
+  renderNewRoadDraft();
+  setIfLineStatusMessage(iflineNewRoadDrawing ? '画路已开启：点击城市添加节点。' : '画路已暂停：现在可以自由拖动和观察城市。');
+}
+
+function setIfLineStudioMode(mode) {
+  if (!['new_road', 'existing_road'].includes(mode)) return;
+  if(window.RoadEditor)RoadEditor.clearHover();
+  iflineStudioMode = mode;
+  const drawing = mode === 'new_road';
+  document.getElementById('iflineStudioNewRoadPanel').style.display = drawing ? 'block' : 'none';
+  document.getElementById('iflineStudioExistingRoadPanel').style.display = drawing ? 'none' : 'block';
+  document.getElementById('iflineStudioModeNew').classList.toggle('active', drawing);
+  document.getElementById('iflineStudioModeExisting').classList.toggle('active', !drawing);
+  document.getElementById('iflineStudioHint').textContent = drawing
+    ? '移动预览 · 拖动蓝点改路 · Shift 关闭吸附 · 空白拖动旋转 · Esc 暂停'
+    : '点击道路进行选择 · 拖动旋转 · 滚轮缩放 · WASD 移动';
+  if (drawing) {
+    clearIfLineStudioOverlays();
+    iflineNewRoadDrawing = true;
+    if (activeViewer && activeViewer.userData.controls) activeViewer.userData.controls.autoRotate = false;
+    renderNewRoadDraft();
+    setIfLineStatusMessage('自由画路已开启：从现有路口开始，点击城市添加任意走向。');
+  } else {
+    clearNewRoadOverlay();
+    renderIfLineStudioSelection();
+    setIfLineStatusMessage('辅助工具已开启：点击一条现有机动车道路进行参数调整。');
+  }
+  refreshStudioRunButton();
+}
+
+function studioInterventionType() {
+  return document.getElementById('iflineType').value;
+}
+
+function studioAutoName(force = false) {
+  const studioName = document.getElementById('iflineStudioName');
+  const mainName = document.getElementById('iflineScenarioName');
+  if (!iflineSelectedLinkId || (!force && studioName.dataset.userEdited === 'true')) return;
+  const type = studioInterventionType();
+  const value = Number(document.getElementById('iflineValue').value);
+  let suggestion = `道路 ${iflineSelectedLinkId} 政策方案`;
+  if (type === 'speed_limit') suggestion = `道路 ${iflineSelectedLinkId} 限速调整为 ${value} km/h`;
+  if (type === 'capacity_scale') suggestion = `道路 ${iflineSelectedLinkId} 通行能力调整为 ${value}%`;
+  if (type === 'road_closure') suggestion = `道路 ${iflineSelectedLinkId} 机动车关闭`;
+  studioName.value = suggestion;
+  mainName.value = suggestion;
+  mainName.dataset.userEdited = 'false';
+}
+
+function setStudioIntervention(type) {
+  if (!['speed_limit', 'capacity_scale', 'road_closure'].includes(type)) return;
+  const mainType = document.getElementById('iflineType');
+  mainType.value = type;
+  updateIfLineValueField();
+
+  for (const tab of document.querySelectorAll('[data-studio-type]')) {
+    tab.classList.toggle('active', tab.dataset.studioType === type);
+  }
+
+  const valueWrap = document.getElementById('iflineStudioValueWrap');
+  const range = document.getElementById('iflineStudioRange');
+  const number = document.getElementById('iflineStudioValue');
+  const mainValue = document.getElementById('iflineValue');
+  if (type === 'road_closure') {
+    valueWrap.style.display = 'none';
+  } else {
+    valueWrap.style.display = 'block';
+    const isSpeed = type === 'speed_limit';
+    const min = isSpeed ? 5 : 1;
+    const max = isSpeed ? 130 : 300;
+    const fallback = isSpeed ? 30 : 120;
+    const value = Number.isFinite(Number(mainValue.value)) ? Number(mainValue.value) : fallback;
+    range.min = number.min = min;
+    range.max = number.max = max;
+    range.step = number.step = 5;
+    range.value = number.value = Math.max(min, Math.min(max, value));
+    mainValue.value = number.value;
+    document.getElementById('iflineStudioUnit').textContent = isSpeed ? 'km/h' : '基线的 %';
+  }
+  studioAutoName();
+  renderIfLineStudioSelection();
+}
+
+function updateStudioValue(value) {
+  const type = studioInterventionType();
+  if (type === 'road_closure') return;
+  const isSpeed = type === 'speed_limit';
+  const min = isSpeed ? 5 : 1;
+  const max = isSpeed ? 130 : 300;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return;
+  const normalized = Math.max(min, Math.min(max, parsed));
+  document.getElementById('iflineStudioRange').value = normalized;
+  document.getElementById('iflineStudioValue').value = normalized;
+  document.getElementById('iflineValue').value = normalized;
+  studioAutoName();
+  renderIfLineStudioSelection();
+}
+
+function updateStudioReverse() {
+  document.getElementById('iflineIncludeReverse').checked =
+    document.getElementById('iflineStudioReverse').checked;
+  refreshIfLineSelection();
+}
+
+function clearIfLineStudioOverlays() {
+  for (const overlay of iflineStudioSelectionOverlays) {
+    if (overlay.parent) overlay.parent.remove(overlay);
+    if (overlay.geometry) overlay.geometry.dispose();
+    if (overlay.material) overlay.material.dispose();
+  }
+  iflineStudioSelectionOverlays = [];
+  activeViewer?.userData.requestRender?.();
+}
+
+function updateIfLineStudioOverlay() {
+  clearIfLineStudioOverlays();
+  if (!iflineStudioOpen || !activeViewer || !activeViewer.userData.iflineRoadMeshes) return;
+  const selected = selectedIfLineLink();
+  if (!selected) return;
+  const reverse = matchingReverseLink(selected);
+  const ids = [String(selected.id)];
+  if (reverse) ids.push(String(reverse.id));
+  const renderedMeshes = new Set();
+
+  ids.forEach((id, index) => {
+    const entry = activeViewer.userData.iflineRoadMeshes.get(id);
+    if (!entry || !entry.mesh || renderedMeshes.has(entry.mesh)) return;
+    renderedMeshes.add(entry.mesh);
+    const material = new THREE.MeshBasicMaterial({
+      color: index === 0 ? 0x36a2ff : 0x8ad7ff,
+      transparent: true,
+      opacity: index === 0 ? 0.98 : 0.82,
+      depthTest: true,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const overlay = new THREE.Mesh(entry.mesh.geometry.clone(), material);
+    overlay.position.copy(entry.mesh.position);
+    overlay.quaternion.copy(entry.mesh.quaternion);
+    overlay.scale.copy(entry.mesh.scale);
+    overlay.scale.z *= 1.36;
+    overlay.position.y += 0.42;
+    overlay.renderOrder = 90;
+    overlay.userData.iflineEditorOverlay = true;
+    activeViewer.add(overlay);
+    iflineStudioSelectionOverlays.push(overlay);
+  });
+  activeViewer.userData.requestRender?.();
+}
+
+function renderIfLineStudioSelection() {
+  if (iflineStudioMode === 'new_road') {
+    renderNewRoadDraft();
+    return;
+  }
+  const selection = document.getElementById('iflineStudioSelection');
+  const preview = document.getElementById('iflineStudioPreview');
+  const runButton = document.getElementById('iflineStudioRun');
+  if (!selection || !preview || !runButton) return;
+  const link = selectedIfLineLink();
+  if (!link) {
+    selection.innerHTML = '<strong>尚未选择道路</strong>点击道路后，这里会显示实际 MATSim link 参数。';
+    preview.innerHTML = '<strong>方案预览</strong>请选择道路。这里显示参数变化；交通效果必须运行 MATSim 后才能确认。';
+    refreshStudioRunButton();
+    updateIfLineStudioOverlay();
+    return;
+  }
+
+  const reverse = matchingReverseLink(link);
+  const linkIds = reverse ? `${link.id} + 反向 ${reverse.id}` : `${link.id}（单向）`;
+  selection.innerHTML = '';
+  const heading = document.createElement('strong');
+  heading.textContent = `${link.road_type || 'road'} · link ${linkIds}`;
+  const details = document.createElement('span');
+  details.textContent = `${Number(link.length_m).toFixed(0)} 米 · ${Number(link.speed_kph).toFixed(1)} km/h · ` +
+    `${Number(link.lanes).toFixed(1)} 车道 · 容量 ${Number(link.capacity).toFixed(0)}/h · ` +
+    `方式 ${(link.modes || []).join(' / ') || '未标注'} · 基线进入 ${link.volume || 0} 次`;
+  selection.append(heading, details);
+
+  if (!linkSupportsCar(link)) {
+    preview.innerHTML = '';
+    const previewHeading = document.createElement('strong');
+    previewHeading.textContent = '已识别非机动车路径';
+    const actionLine = document.createElement('span');
+    actionLine.textContent = `该 link 只允许 ${(link.modes || []).join(' / ') || '未标注方式'}，当前限速、机动车容量和机动车封路工具不适用。`;
+    const caveat = document.createElement('small');
+    caveat.textContent = '现在它仍可被点击、识别和高亮；这样不会再把有效点击表现成“没有反应”。';
+    preview.append(previewHeading, actionLine, caveat);
+    refreshStudioRunButton();
+    updateIfLineStudioOverlay();
+    return;
+  }
+
+  const type = studioInterventionType();
+  const value = Number(document.getElementById('iflineValue').value);
+  let action = '';
+  if (type === 'speed_limit') {
+    action = `限速：${Number(link.speed_kph).toFixed(1)} → ${value.toFixed(0)} km/h`;
+  } else if (type === 'capacity_scale') {
+    action = `通行能力：${Number(link.capacity).toFixed(0)} → ${(Number(link.capacity) * value / 100).toFixed(0)}/h（${value.toFixed(0)}%）`;
+  } else {
+    const retained = (link.modes || []).filter(mode => mode !== 'car');
+    action = `机动车关闭：移除 car${retained.length ? `，保留 ${retained.join('、')}` : ''}`;
+  }
+  preview.innerHTML = '';
+  const previewHeading = document.createElement('strong');
+  previewHeading.textContent = '提交前预览';
+  const actionLine = document.createElement('span');
+  actionLine.textContent = action;
+  const caveat = document.createElement('small');
+  caveat.textContent = '蓝色只表示直接干预道路；全网影响、出行时间和方式变化必须由新 MATSim 分支计算。';
+  preview.append(previewHeading, actionLine, caveat);
+  refreshStudioRunButton();
+  studioAutoName();
+  updateIfLineStudioOverlay();
+}
+
+function activateIfLineStudioScene(scene) {
+  if (iflineStudioDetachPicker) iflineStudioDetachPicker();
+  iflineStudioDetachPicker = null;
+  if (!scene || !scene.userData.renderer || !scene.userData.camera) return;
+  const roadMeshes = scene.userData.iflineRoadMeshes;
+  const canvas = scene.userData.renderer.domElement;
+  if (!roadMeshes || !roadMeshes.size) {
+    setIfLineStatusMessage('这个旧 3D 场景缺少道路身份，正在等待重新生成场景数据。');
+    return;
+  }
+  const knownIds = new Set((iflineMapData ? iflineMapData.links : []).map(link => String(link.id)));
+  const entries = [...roadMeshes.entries()]
+    .filter(([linkId]) => knownIds.has(String(linkId)));
+  const visiblePickables = [...new Set(entries.map(([, entry]) => entry.mesh).filter(Boolean))];
+  const tolerantPickables = [...new Set(entries.map(([, entry]) => entry.hitMesh).filter(Boolean))];
+  if (!visiblePickables.length) {
+    setIfLineStatusMessage('当前 3D 场景与 MATSim 路网身份无法匹配，已停止道路选择。');
+    return;
+  }
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let pointerDown = null;
+
+  const onPointerDown = event => {
+    if (iflineStudioMode === 'new_road') return;
+    if (event.button !== 0) return;
+    pointerDown = { x:event.clientX, y:event.clientY };
+  };
+  const onPointerUp = event => {
+    if(iflineStudioMode==='new_road'){pointerDown=null;return;}
+    if (!pointerDown || event.button !== 0) return;
+    const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
+    pointerDown = null;
+    if (moved > 7) return;
+    const rect = canvas.getBoundingClientRect();
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, scene.userData.camera);
+    // Prefer an exact hit on the visible link. If the road is too thin on
+    // screen, fall back to its wider invisible interaction corridor.
+    const hit = raycaster.intersectObjects(visiblePickables, false)[0] ||
+      raycaster.intersectObjects(tolerantPickables, false)[0];
+    if (!hit || !hit.object.userData.iflineLinkId) return;
+    if (scene.userData.controls) scene.userData.controls.autoRotate = false;
+    selectIfLineLink(hit.object.userData.iflineLinkId);
+    const selected = selectedIfLineLink();
+    setIfLineStatusMessage(linkSupportsCar(selected)
+      ? '机动车道路已选中。调整右侧参数后即可创建受控仿真分支。'
+      : `已识别 link ${selected ? selected.id : ''}：这是 ${(selected && selected.modes || []).join(' / ')} 路径，不是机动车道路，因此当前机动车干预不会误用在这里。`);
+  };
+  canvas.style.cursor = 'crosshair';
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointerup', onPointerUp);
+  const detachRoadEditor=RoadEditor.attach(scene);
+  const detach = () => {
+    detachRoadEditor();
+    canvas.removeEventListener('pointerdown', onPointerDown);
+    canvas.removeEventListener('pointerup', onPointerUp);
+    canvas.style.cursor = '';
+  };
+  iflineStudioDetachPicker = detach;
+  scene.userData.cleanupCallbacks.push(detach);
+  updateIfLineStudioOverlay();
+}
+
+let detachStudioViewport = null;
+async function openIfLineStudio() {
+  if (iflineStudioLoading) return;
+  const baseline = document.getElementById('iflineBaselineSelect').value;
+  if (!baseline) {
+    showError('还不能打开 3D 沙盘', '需要先完成一个带运行记录和 3D 场景的基线。');
+    return;
+  }
+  iflineStudioLoading = true;
+  document.getElementById('iflineStudioLaunch').disabled = true;
+  document.getElementById('error').style.display = 'none';
+  document.body.classList.add('ifline-studio-open');
+  iflineStudioOpen = true;
+  document.getElementById('result').style.display = 'block';
+  if (detachStudioViewport) detachStudioViewport();
+  detachStudioViewport = StudioViewport.bind(document.getElementById('iflineStudioStage'), () => {
+    if (activeViewer?.userData.resize) activeViewer.userData.resize();
+  });
+  document.getElementById('iflineStudioBaselineLabel').textContent = '正在载入可编辑基线城市…';
+  setIfLineStatusMessage('正在载入路网身份、地形、建筑和 MATSim 车辆事件…');
+  try {
+    if (!iflineMapData || iflineMapData.run_name !== baseline) await loadIfLineNetwork();
+    if (!iflineMapData || iflineMapData.run_name !== baseline) {
+      throw new Error('基线路网身份数据没有载入');
+    }
+    const data = await apiJson(`/runs/${encodeURIComponent(baseline)}`);
+    await showResult(data);
+    await ensureDisplayedScene();
+    if (!activeViewer) throw new Error('基线没有可用的 3D 场景');
+    const selectedOption = document.getElementById('iflineBaselineSelect').selectedOptions[0];
+    document.getElementById('iflineStudioBaselineLabel').textContent =
+      `${selectedOption ? selectedOption.textContent : baseline} · 自由绘制并运行可审计方案`;
+    document.getElementById('iflineStudioReverse').checked =
+      document.getElementById('iflineIncludeReverse').checked;
+    activateIfLineStudioScene(activeViewer);
+    setStudioIntervention(document.getElementById('iflineType').value);
+    setIfLineStudioMode(iflineStudioMode);
+    cityPlanRefresh();
+    setIfLineStatusMessage(iflineStudioMode === 'new_road'
+      ? '编辑器已就绪：从一个现有路口开始，在城市中直接画出新道路。'
+      : '编辑器已就绪：点击城市中的任意机动车道路。');
+    if (activeViewer.userData.resize) requestAnimationFrame(activeViewer.userData.resize);
+  } catch (error) {
+    showError('3D 政策沙盘无法打开', error.message);
+    setIfLineStatusMessage(`载入失败：${error.message}`);
+    closeIfLineStudio();
+  } finally {
+    iflineStudioLoading = false;
+    document.getElementById('iflineStudioLaunch').disabled = !iflineMapData;
+    renderIfLineStudioSelection();
+  }
+}
+
+function closeIfLineStudio() {
+  iflineStudioOpen = false;
+  if (detachStudioViewport) detachStudioViewport();
+  detachStudioViewport = null;
+  document.body.classList.remove('ifline-studio-open');
+  if (iflineStudioDetachPicker) iflineStudioDetachPicker();
+  iflineStudioDetachPicker = null;
+  clearIfLineStudioOverlays();
+  clearNewRoadOverlay();
+  const studioStatus = document.getElementById('iflineStudioStatus');
+  studioStatus.style.display = 'none';
+  if (!localStorage.getItem('matsimIfLineJob')) {
+    const mainStatus = document.getElementById('iflineStatus');
+    mainStatus.style.display = 'none';
+  }
+  if (activeViewer && activeViewer.userData.resize) requestAnimationFrame(activeViewer.userData.resize);
+}
+
+async function loadIfLineNetwork() {
+  const sequence=++iflineNetworkSequence;
+  const baseline = document.getElementById('iflineBaselineSelect').value;
+  const selectedLabel = document.getElementById('iflineSelectedLink');
+  const button = document.getElementById('iflineRunButton');
+  const studioLaunch = document.getElementById('iflineStudioLaunch');
+  button.disabled = true;
+  studioLaunch.disabled = true;
+  iflineMapData = null;
+  iflineNetworkNodes = [];
+  iflineSelectedLinkId = null;
+  document.getElementById('iflineMap').innerHTML = '';
+  iflineLinkElements.clear();
+  if (!baseline) return;
+  if (!iflineStudioOpen && !document.getElementById('iflineFallback').open) {
+    selectedLabel.textContent = '打开备用编辑器或进入 3D 沙盘后读取路网。';
+    studioLaunch.disabled = false;
+    return;
+  }
+  selectedLabel.textContent = '正在读取基线路网和已观测仿真流量…';
+  try {
+    const data = await apiJson(`/ifline/network/${encodeURIComponent(baseline)}`);
+    if(sequence!==iflineNetworkSequence)return;
+    iflineMapData = data;
+    rebuildIfLineNetworkNodes();
+    renderIfLineMap();
+    const busiest = [...iflineMapData.links]
+      .filter(linkSupportsCar)
+      .sort((a, b) => (b.volume || 0) - (a.volume || 0))[0];
+    if (busiest) selectIfLineLink(busiest.id);
+    studioLaunch.disabled = false;
+  } catch (error) {
+    if(sequence!==iflineNetworkSequence)return;
+    selectedLabel.textContent = `路网读取失败：${error.message}`;
+    studioLaunch.disabled = true;
+  }
+}
+
+async function pollIfLineJob(jobId, expectedRunId, startedAt = Date.now()) {
+  const button = document.getElementById('iflineRunButton');
+  const studioButton = document.getElementById('iflineStudioRun');
+  button.disabled = true;
+  studioButton.disabled = true;
+  try {
+    const job = await apiJson(`/jobs/${jobId}`);
+    const elapsedMin = Math.floor((Date.now() - startedAt) / 60000);
+    if (job.status === 'completed') {
+      localStorage.removeItem('matsimIfLineJob');
+      if (!job.run_id || job.run_id !== expectedRunId || !job.result || job.result.run_id !== job.run_id) {
+        clearDisplayedResult({ preserveStudio: iflineStudioOpen });
+        iflineSubmittedLinkId = null;
+        const message = '方案任务与返回结果不一致，已拒绝展示。';
+        setIfLineStatusMessage(message);
+        showError('IF Line 结果核对失败', message);
+        button.disabled = !linkSupportsCar(selectedIfLineLink());
+        refreshStudioRunButton();
+        return;
+      }
+      const selectedBeforeRefresh = iflineSubmittedLinkId || iflineSelectedLinkId;
+      setIfLineStatusMessage('方案已完成并通过产物核对，正在打开差异结果。');
+      await showResult(job.result);
+      await Promise.allSettled([loadRuns(), loadIfLineBaselines(), loadIfLineScenarios()]);
+      if (selectedBeforeRefresh && iflineMapData &&
+          iflineMapData.links.some(link => String(link.id) === String(selectedBeforeRefresh))) {
+        selectIfLineLink(selectedBeforeRefresh);
+      }
+      if (iflineStudioOpen && activeViewer) activateIfLineStudioScene(activeViewer);
+      if (iflineStudioMode === 'new_road') renderNewRoadDraft();
+      setIfLineStatusMessage('方案已完成：当前 3D 城市显示相对基线的影响扩散结果。');
+      iflineSubmittedLinkId = null;
+      button.disabled = !linkSupportsCar(selectedIfLineLink());
+      refreshStudioRunButton();
+      return;
+    }
+    if (job.status === 'failed') {
+      localStorage.removeItem('matsimIfLineJob');
+      iflineSubmittedLinkId = null;
+      clearDisplayedResult({ preserveStudio: iflineStudioOpen });
+      setIfLineStatusMessage('方案运行失败；当前画面仍是提交前的基线编辑视图，不是新结果。');
+      if (iflineStudioOpen) {
+        document.getElementById('iflineStudioBaselineLabel').textContent = '运行失败 · 当前仍显示基线编辑视图';
+      }
+      showError('IF Line 方案没有完成', job.error || '没有更多错误信息');
+      button.disabled = !linkSupportsCar(selectedIfLineLink());
+      refreshStudioRunButton();
+      return;
+    }
+    setIfLineStatusMessage(`方案运行中：${job.stage || '等待执行'}（已过去 ${elapsedMin} 分钟）`);
+    setTimeout(() => pollIfLineJob(jobId, expectedRunId, startedAt), 5000);
+  } catch (error) {
+    setIfLineStatusMessage(`暂时无法读取方案状态，5 秒后重试：${error.message}`);
+    setTimeout(() => pollIfLineJob(jobId, expectedRunId, startedAt), 5000);
+  }
+}
+
+async function startIfLine() {
+  const baselineRun = document.getElementById('iflineBaselineSelect').value;
+  const name = document.getElementById('iflineScenarioName').value.trim();
+  const type = document.getElementById('iflineType').value;
+  const value = Number(document.getElementById('iflineValue').value);
+  const button = document.getElementById('iflineRunButton');
+  const studioButton = document.getElementById('iflineStudioRun');
+  if (!baselineRun || !linkSupportsCar(selectedIfLineLink())) {
+    showError('还不能创建方案', '请选择一个有记录的基线和一条允许 car 的机动车道路。');
+    return;
+  }
+  if (name.length < 2) {
+    showError('方案名称太短', '请输入至少两个字符，方便之后识别这个分支。');
+    return;
+  }
+  document.getElementById('error').style.display = 'none';
+  iflineSubmittedLinkId = String(iflineSelectedLinkId);
+  clearDisplayedResult({ preserveStudio: iflineStudioOpen });
+  button.disabled = true;
+  studioButton.disabled = true;
+  setIfLineStatusMessage('正在创建可审计的政策分支…');
+  if (iflineStudioOpen) {
+    document.getElementById('iflineStudioBaselineLabel').textContent =
+      '方案运行中 · 当前仍显示提交前的基线编辑视图';
+  }
+  const startedAt = Date.now();
+  try {
+    const data = await apiJson('/ifline/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseline_run: baselineRun,
+        name,
+        intervention: {
+          type,
+          link_id: iflineSelectedLinkId,
+          value: type === 'road_closure' ? null : value,
+          include_reverse: document.getElementById('iflineIncludeReverse').checked,
+        },
+      }),
+    });
+    localStorage.setItem('matsimIfLineJob', JSON.stringify({
+      id: data.job_id, runId: data.run_id, startedAt, linkId: iflineSubmittedLinkId,
+    }));
+    pollIfLineJob(data.job_id, data.run_id, startedAt);
+  } catch (error) {
+    iflineSubmittedLinkId = null;
+    setIfLineStatusMessage('方案没有启动；当前画面不是新结果。');
+    showError('IF Line 方案无法启动', error.message);
+    button.disabled = !linkSupportsCar(selectedIfLineLink());
+    refreshStudioRunButton();
+  }
+}
+
 function showError(message, detail = '') {
   const errorDiv = document.getElementById('error');
   errorDiv.querySelector('div').textContent = message;
@@ -346,32 +2036,52 @@ function showError(message, detail = '') {
   errorDiv.style.display = 'block';
 }
 
-function clearDisplayedResult() {
-  document.getElementById('result').style.display = 'none';
-  if (activeSceneRequest) activeSceneRequest.abort();
-  if (activeViewer && activeViewer.userData.dispose) activeViewer.userData.dispose();
-  activeSceneRequest = null;
-  activeViewer = null;
-  document.getElementById('skylineContainer').innerHTML = '';
+function clearDisplayedResult({ preserveStudio = false } = {}) {
+  ImpactWorkbench.close();
+  document.getElementById('result').style.display = preserveStudio ? 'block' : 'none';
+  document.getElementById('iflineComparison').style.display = 'none';
+  document.getElementById('iflineStudioComparison').style.display = 'none';
+  document.getElementById('resultHeading').textContent = '结果摘要';
+  document.getElementById('resultDetailHeading').style.display = 'none';
+  document.getElementById('trafficLegend').style.display = 'flex';
+  document.getElementById('iflineLegend').style.display = 'none';
+  document.getElementById('sceneHeading').textContent = '3D 城市交通视图';
+  document.getElementById('sceneDescription').textContent =
+    '真实墨尔本路网、地形与 MATSim 车辆数据，以清晰分区和低多边形建筑呈现。拖动旋转、滚轮缩放，按 WASD 或方向键在城市中移动。';
   document.getElementById('modestatsChart').removeAttribute('src');
   document.getElementById('scorestatsChart').removeAttribute('src');
+  if (preserveStudio && activeViewer) return;
+  disposeDisplayedScene();
+  document.getElementById('skylineContainer').innerHTML = '';
 }
 
+let runOpenSequence = 0;
 async function loadSelectedRun() {
-  const runName = document.getElementById('runSelect').value;
+  return openRecordedRun(document.getElementById('runSelect').value);
+}
+
+async function openRecordedRun(runName, baselineOverride = null) {
   if (!runName) return;
+  const sequence = ++runOpenSequence;
+  clearDisplayedResult();
   const button = document.getElementById('openRunButton');
   button.disabled = true;
   button.textContent = '正在打开…';
   document.getElementById('error').style.display = 'none';
   try {
     const data = await apiJson(`/runs/${encodeURIComponent(runName)}`);
-    await showResult(data);
+    if (sequence !== runOpenSequence) return;
+    await showResult(data, baselineOverride);
+    if (sequence !== runOpenSequence) return;
   } catch (error) {
+    if (sequence !== runOpenSequence) return;
+    clearDisplayedResult();
     showError('无法打开这个结果', error.message);
   } finally {
-    button.disabled = false;
-    button.textContent = '打开结果';
+    if (sequence === runOpenSequence) {
+      button.disabled = false;
+      button.textContent = '打开结果';
+    }
   }
 }
 
@@ -452,7 +2162,232 @@ async function startPipeline() {
   }
 }
 
-async function showResult(data) {
+function renderIfLineComparison(data) {
+  const panel = document.getElementById('iflineComparison');
+  const comparison = data.ifline_comparison;
+  const studioPanel = document.getElementById('iflineStudioComparison');
+  if (!comparison) {
+    panel.style.display = 'none';
+    studioPanel.style.display = 'none';
+    document.getElementById('resultHeading').textContent = '结果摘要';
+    document.getElementById('resultDetailHeading').style.display = 'none';
+    document.getElementById('trafficLegend').style.display = 'flex';
+    document.getElementById('iflineLegend').style.display = 'none';
+    document.getElementById('sceneHeading').textContent = '3D 城市交通视图';
+    document.getElementById('sceneDescription').textContent =
+      '真实墨尔本路网、地形与 MATSim 车辆数据，以清晰分区和低多边形建筑呈现。深灰色是道路本体，上方彩色细带表示本次运行的交通状态。';
+    return;
+  }
+
+  panel.style.display = 'block';
+  document.getElementById('resultHeading').textContent = '方案影响对比';
+  document.getElementById('resultDetailHeading').style.display = 'block';
+  document.getElementById('iflineComparisonTitle').textContent =
+    `${comparison.scenario_name || comparison.scenario_id} · 对照 ${comparison.baseline_run}`;
+  const evidence = document.getElementById('iflineEvidenceLink');
+  const evidenceUrl = data.ifline_comparison_url || data.ifline_scenario_url;
+  if (evidenceUrl) {
+    evidence.href = evidenceUrl;
+    evidence.style.display = 'inline-block';
+  } else {
+    evidence.removeAttribute('href');
+    evidence.style.display = 'none';
+  }
+
+  const delta = comparison.delta || {};
+  const baseline = comparison.baseline || {};
+  const proposal = comparison.proposal || {};
+  const carChange = (comparison.mode_changes || []).find(row => row.mode === 'car');
+  const effects = comparison.network_effects || {};
+  const verdict = comparisonVerdict(comparison);
+  const verdictCard = document.getElementById('iflineVerdictCard');
+  verdictCard.className = `comparison-verdict ${verdict.tone}`;
+  document.getElementById('iflineVerdictIcon').textContent = verdict.icon;
+  document.getElementById('iflineVerdict').textContent = verdict.title;
+  document.getElementById('iflineVerdictBadge').textContent = verdict.badge;
+  const materialLinks = Number(effects.links_with_material_delay_change || 0);
+  document.getElementById('iflineVerdictDetail').textContent =
+    `每次汽车出行：${formatDurationValue(verdict.baseline)} → ${formatDurationValue(verdict.proposal)}；` +
+    `全方式平均变化 ${formatTimeDelta(delta.avg_trip_time_seconds)}，${materialLinks} 条路段测到明显延误变化。`;
+
+  const metrics = document.getElementById('iflineMetricComparisons');
+  metrics.innerHTML = '';
+  appendComparisonMetric(metrics, {
+    label:'全方式平均出行时间', hint:'每次出行',
+    baseline:baseline.avg_trip_time_seconds, proposal:proposal.avg_trip_time_seconds,
+    delta:delta.avg_trip_time_seconds,
+    percent:delta.avg_trip_time_percent !== undefined && delta.avg_trip_time_percent !== null
+      ? delta.avg_trip_time_percent
+      : relativeDeltaPercent(baseline.avg_trip_time_seconds, proposal.avg_trip_time_seconds),
+    formatValue:formatDurationValue, formatDelta:formatTimeDelta, lowerIsBetter:true,
+  });
+  if (carChange) {
+    appendComparisonMetric(metrics, {
+      label:'汽车平均出行时间', hint:'道路方案核心指标',
+      baseline:carChange.baseline_avg_time_seconds, proposal:carChange.proposal_avg_time_seconds,
+      delta:carChange.avg_time_delta_seconds,
+      percent:carChange.avg_time_delta_percent !== undefined && carChange.avg_time_delta_percent !== null
+        ? carChange.avg_time_delta_percent
+        : relativeDeltaPercent(carChange.baseline_avg_time_seconds, carChange.proposal_avg_time_seconds),
+      formatValue:formatDurationValue, formatDelta:formatTimeDelta, lowerIsBetter:true,
+    });
+  }
+  appendComparisonMetric(metrics, {
+    label:'全方式平均出行距离', hint:'绕行与路径变化',
+    baseline:baseline.avg_trip_distance_m, proposal:proposal.avg_trip_distance_m,
+    delta:delta.avg_trip_distance_m,
+    percent:delta.avg_trip_distance_percent !== undefined && delta.avg_trip_distance_percent !== null
+      ? delta.avg_trip_distance_percent
+      : relativeDeltaPercent(baseline.avg_trip_distance_m, proposal.avg_trip_distance_m),
+    formatValue:formatDistanceValue,
+    formatDelta:value => formatSigned(value, 0, ' 米'), lowerIsBetter:true,
+  });
+  appendComparisonMetric(metrics, {
+    label:'MATSim 平均计划得分', hint:'模型效用；越高越好',
+    baseline:Number(baseline.last_score || 0), proposal:Number(proposal.last_score || 0),
+    delta:Number(delta.last_score || 0), percent:null,
+    formatValue:value => Number(value || 0).toFixed(3),
+    formatDelta:value => formatSigned(value, 3, ''), lowerIsBetter:false,
+  });
+
+  const modeNames = { car:'汽车', pt:'公共交通', walk:'步行', bike:'自行车' };
+  const modeColors = { car:'#377cf6', pt:'#8460d5', walk:'#27946c', bike:'#d89221' };
+  const modeOrder = { car:0, pt:1, walk:2, bike:3 };
+  const modeRows = [...(comparison.mode_changes || [])].sort(
+    (a, b) => (modeOrder[a.mode] !== undefined ? modeOrder[a.mode] : 99) -
+      (modeOrder[b.mode] !== undefined ? modeOrder[b.mode] : 99)
+  );
+  const modeBars = document.getElementById('iflineModeBars');
+  modeBars.innerHTML = '';
+  for (const [label, key] of [['基线', 'baseline_share'], ['方案', 'proposal_share']]) {
+    const rowElement = document.createElement('div');
+    rowElement.className = 'mode-share-row';
+    const rowLabel = document.createElement('div');
+    rowLabel.className = 'mode-share-label';
+    rowLabel.textContent = label;
+    const bar = document.createElement('div');
+    bar.className = 'mode-share-bar';
+    for (const row of modeRows) {
+      const share = Math.max(0, Number(row[key] || 0));
+      if (!share) continue;
+      const segment = document.createElement('div');
+      segment.className = 'mode-share-segment';
+      segment.style.width = `${share * 100}%`;
+      segment.style.background = modeColors[row.mode] || '#708090';
+      segment.textContent = share >= 0.11 ? `${(share * 100).toFixed(0)}%` : '';
+      segment.title = `${modeNames[row.mode] || row.mode}：${(share * 100).toFixed(1)}%`;
+      bar.appendChild(segment);
+    }
+    rowElement.append(rowLabel, bar);
+    modeBars.appendChild(rowElement);
+  }
+  const modeLegend = document.getElementById('iflineModeLegend');
+  modeLegend.innerHTML = '';
+  for (const row of modeRows) {
+    const item = document.createElement('span');
+    const swatch = document.createElement('i');
+    swatch.style.background = modeColors[row.mode] || '#708090';
+    item.appendChild(swatch);
+    item.append(`${modeNames[row.mode] || row.mode} ${formatSigned(row.share_delta_points, 2, 'pp')}`);
+    modeLegend.appendChild(item);
+  }
+  const largestModeShift = modeRows.reduce(
+    (largest, row) => Math.abs(Number(row.share_delta_points || 0)) > Math.abs(Number(largest.share_delta_points || 0)) ? row : largest,
+    { share_delta_points:0 }
+  );
+  document.getElementById('iflineModeInsight').textContent =
+    Math.abs(Number(largestModeShift.share_delta_points || 0)) < 0.01
+      ? '本次没有观察到方式占比变化；重点看路网与出行时间。'
+      : `${modeNames[largestModeShift.mode] || largestModeShift.mode}变化最大：${formatSigned(largestModeShift.share_delta_points, 2, ' 个百分点')}`;
+
+  const impactChanges = (effects.largest_changes || []).slice(0, 8);
+  const reduction = Math.abs(Math.min(0, ...impactChanges.map(row => Number(row.delay_delta_seconds || 0))));
+  const increase = Math.max(0, ...impactChanges.map(row => Number(row.delay_delta_seconds || 0)));
+  const impactSummary = document.getElementById('iflineNetworkImpactSummary');
+  impactSummary.innerHTML = '';
+  for (const [label, value] of [
+    ['明显变化路段', `${materialLinks} 条`],
+    ['最大延误减少', reduction ? `−${formatDurationValue(reduction)}` : '没有'],
+    ['最大延误增加', increase ? `+${formatDurationValue(increase)}` : '没有'],
+  ]) {
+    const item = document.createElement('div');
+    const itemLabel = document.createElement('span');
+    itemLabel.textContent = label;
+    const itemValue = document.createElement('strong');
+    itemValue.textContent = value;
+    item.append(itemLabel, itemValue);
+    impactSummary.appendChild(item);
+  }
+  document.getElementById('iflineNetworkInsight').textContent = impactChanges.length
+    ? `显示绝对延误变化最大的 ${impactChanges.length} 条 link；绿色改善，红色恶化。`
+    : '没有测到超过当前阈值的路段延误变化。';
+  const impactBars = document.getElementById('iflineNetworkImpactBars');
+  impactBars.innerHTML = '';
+  const maxImpact = Math.max(0.1, ...impactChanges.map(row => Math.abs(Number(row.delay_delta_seconds || 0))));
+  for (const row of impactChanges) {
+    const delayChange = Number(row.delay_delta_seconds || 0);
+    const impactRow = document.createElement('div');
+    impactRow.className = 'impact-row';
+    const link = document.createElement('div');
+    link.className = 'impact-link';
+    link.textContent = `link ${row.link_id}`;
+    const track = document.createElement('div');
+    track.className = 'impact-track';
+    const fill = document.createElement('div');
+    fill.className = `impact-fill ${delayChange < 0 ? 'better' : 'worse'}`;
+    fill.style.width = `${Math.max(2, (Math.abs(delayChange) / maxImpact) * 50)}%`;
+    track.appendChild(fill);
+    const value = document.createElement('div');
+    value.className = `impact-value ${deltaClass(delayChange, true)}`;
+    value.textContent = `${formatTimeDelta(delayChange)} · 流量 ${formatSigned(row.volume_delta, 0)}`;
+    impactRow.title = `相对基线：平均 link 延误 ${formatTimeDelta(delayChange)}，进入次数 ${formatSigned(row.volume_delta, 0)}`;
+    impactRow.append(link, track, value);
+    impactBars.appendChild(impactRow);
+  }
+
+  const tbody = document.getElementById('iflineModeChanges');
+  tbody.innerHTML = '';
+  for (const row of modeRows) {
+    const tr = document.createElement('tr');
+    const values = [
+      { text:modeNames[row.mode] || row.mode },
+      { text:`${(Number(row.baseline_share || 0) * 100).toFixed(1)}%` },
+      { text:`${(Number(row.proposal_share || 0) * 100).toFixed(1)}%` },
+      { text:formatSigned(row.share_delta_points, 2, ' 个百分点'), className:'delta-neutral' },
+      { text:formatTimeDelta(row.avg_time_delta_seconds), className:deltaClass(row.avg_time_delta_seconds, true) },
+    ];
+    for (const cell of values) {
+      const td = document.createElement('td');
+      td.textContent = cell.text;
+      if (cell.className) td.className = cell.className;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  const changedIds = (comparison.changed_links || []).map(item => item.link_id).join('、');
+  const controls = comparison.changed_links && comparison.changed_links.length;
+  document.getElementById('iflineControlsNote').textContent =
+    `控制条件：复用完全相同的人口计划、MATSim 随机种子和迭代次数；本分支实际新增或修改 ${controls || 0} 条有向 link${changedIds ? `（${changedIds}）` : ''}。`+
+    (comparison.network_effects?.comparison_note || '')+
+    (comparison.plan_check ? ` 本方案记录 ${comparison.plan_check.conflicts.length} 个建筑轮廓冲突；不是施工可行性认证。`:'');
+
+  studioPanel.style.display = 'block';
+  document.getElementById('iflineStudioVerdict').textContent = verdict.title;
+  document.getElementById('iflineStudioVerdictDetail').textContent =
+    `汽车每次出行 ${formatDurationValue(verdict.baseline)} → ${formatDurationValue(verdict.proposal)}`;
+  document.getElementById('iflineStudioOverallDelta').textContent = formatTimeDelta(delta.avg_trip_time_seconds);
+  document.getElementById('iflineStudioCarDelta').textContent = carChange
+    ? formatTimeDelta(carChange.avg_time_delta_seconds) : '无数据';
+  document.getElementById('iflineStudioLinksChanged').textContent = `${materialLinks} 条`;
+
+  document.getElementById('trafficLegend').style.display = 'none';
+  document.getElementById('iflineLegend').style.display = 'flex';
+  document.getElementById('sceneHeading').textContent = 'IF Line · 影响扩散视图';
+  document.getElementById('sceneDescription').textContent =
+    '蓝色是直接新增或修改的道路；绿色表示相较基线平均 link 延误减少，红色表示延误增加，灰色表示没有测到明显变化。1:1 车辆按本方案真实事件回放；可选的车流增强仅作示意，不改变对比数据。';
+}
+
+async function showResult(data, baselineOverride = null) {
   if (!data || !data.run_id) {
     throw new Error('结果缺少运行 ID，已拒绝展示，避免与其他运行混淆');
   }
@@ -461,11 +2396,19 @@ async function showResult(data) {
   document.getElementById('totalTrips').textContent = data.total_trips;
   document.getElementById('iterations').textContent =
     data.num_iterations;
-  const sourceLabel = data.result_source === 'new_run'
-    ? '本次新运行 · 已完成并核对'
-    : '已有结果回放 · 不是刚刚执行的实时仿真';
-  const validationLabel = data.validation_status === 'verified_demo' ? ' · 固定演示配置' : '';
-  document.getElementById('resultRunName').textContent = `${sourceLabel}${validationLabel} · ${data.run_id}`;
+  const sourceLabels = {
+    new_run: '本次新运行 · 已完成并核对',
+    new_ifline_run: '本次 IF Line 分支 · 已完成并核对',
+    existing_ifline_replay: '已有 IF Line 分支回放 · 不是刚刚执行的实时仿真',
+    existing_replay: '已有结果回放 · 不是刚刚执行的实时仿真',
+  };
+  const sourceLabel = sourceLabels[data.result_source] || sourceLabels.existing_replay;
+  const validationLabel = data.validation_status === 'verified_demo'
+    ? ' · 固定演示配置'
+    : data.validation_status === 'experimental_counterfactual' ? ' · 实验性反事实' : '';
+  document.getElementById('resultRunName').textContent = `${sourceLabel}${validationLabel} · ${data.run_id}` +
+    (data.visualization_note ? ` · ${data.visualization_note}` : '') +
+    (data.comparison_unavailable_reason ? ' · 对照摘要无法重算，未显示旧统计' : '');
   const recordLink = document.getElementById('runRecordLink');
   if (data.run_record_url) {
     recordLink.href = data.run_record_url;
@@ -479,11 +2422,24 @@ async function showResult(data) {
   tbody.innerHTML = '';
   for (const row of data.mode_rows) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${row.mode}</td><td>${row.count}</td>` +
-      `<td>${(row.share * 100).toFixed(1)}%</td>` +
-      `<td>${row.avg_time_label}</td><td>${row.avg_distance_m.toFixed(0)} 米</td>`;
+    for (const value of [row.mode, row.count, `${(row.share * 100).toFixed(1)}%`, row.avg_time_label, formatDistanceValue(row.avg_distance_m)]) {
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+    for (const [field, index] of [['time_quality', 3], ['distance_quality', 4]]) {
+      if (row[field]) {
+        const q = row[field];
+        const note = document.createElement('small');
+        note.style.display = 'block';
+        note.textContent = `有效 ${q.valid} / 缺失 ${q.missing} / 非法 ${q.invalid}`;
+        tr.children[index].appendChild(note);
+      }
+    }
     tbody.appendChild(tr);
   }
+  renderIfLineComparison(data);
+  ImpactWorkbench.open(data, { getScene: () => activeViewer, ensureScene: ensureDisplayedScene, initialBaseline: baselineOverride });
 
   const modeChart = document.getElementById('modestatsChart');
   const scoreChart = document.getElementById('scorestatsChart');
@@ -494,32 +2450,45 @@ async function showResult(data) {
   const result = document.getElementById('result');
   result.style.display = 'block';
 
-  if (activeSceneRequest) activeSceneRequest.abort();
-  if (activeViewer && activeViewer.userData.dispose) activeViewer.userData.dispose();
-  activeViewer = null;
+  disposeDisplayedScene();
 
   if (data.skyline_scene_url) {
     const container = document.getElementById('skylineContainer');
-    container.innerHTML = '<div style="padding:20px;color:white">正在加载 3D 城市…</div>';
-    activeSceneRequest = new AbortController();
-    try {
-      const separator = data.skyline_scene_url.includes('?') ? '&' : '?';
-      const freshSceneUrl = `${data.skyline_scene_url}${separator}v=${Date.now()}`;
-      const sceneData = await apiJson(freshSceneUrl, {
-        signal: activeSceneRequest.signal,
-        cache: 'no-store',
-      });
-      const scene3d = initSkylineViewer(container);
-      activeViewer = scene3d;
-      populateSkylineScene(scene3d, sceneData);
-    } catch (error) {
-      if (error.name !== 'AbortError') {
+    container.dataset.renderState='deferred';
+    container.innerHTML = '<div style="padding:20px;color:white">3D 城市按需加载，滚动到这里后自动打开。<button type="button" id="loadCityScene">加载 3D 城市</button></div>';
+    document.getElementById('simTimeline').style.visibility='hidden';
+    const loader=ViewerLifecycle.deferred({
+      load: async signal => {
+        container.querySelector('#loadCityScene')?.setAttribute('disabled','');
+        // Revalidate the static artifact using ETag/Last-Modified, rather than
+        // a timestamp URL that defeats the browser's cache on every replay.
+        const sceneData = await apiJson(data.skyline_scene_url, {signal,cache:'no-cache'});
+        if(signal.aborted)return null;
+        const scene3d=initSkylineViewer(container);
+        try {populateSkylineScene(scene3d,sceneData);return scene3d;}
+        catch(error){scene3d.userData.dispose();throw error;}
+      },
+      ready: scene3d => {
+        activeViewer=scene3d;
+        document.getElementById('simTimeline').style.visibility='visible';
+        if (iflineStudioOpen) {
+          activateIfLineStudioScene(scene3d);
+          renderIfLineStudioSelection();
+          const context = data.ifline_comparison ? `方案结果 · ${data.run_id}` : `有记录基线 · ${data.run_id}`;
+          document.getElementById('iflineStudioBaselineLabel').textContent = context;
+        }
+      },
+      failed: error => {
         console.error('3D scene failed to build:', error);
-        container.innerHTML = '<p style="color:white;padding:20px;">3D 场景加载失败，但上方统计结果仍然有效。</p>';
-      }
-    } finally {
-      activeSceneRequest = null;
-    }
+        container.innerHTML = '<p style="color:white;padding:20px;">3D 场景加载失败，上方统计仍有效。<button type="button" id="retryCityScene">重试 3D 加载</button></p>';
+        document.getElementById('retryCityScene').onclick=()=>loader.ensure();
+      },
+      release: scene => scene.userData.dispose(),
+    });
+    activeSceneLoad=loader;
+    document.getElementById('loadCityScene').onclick=()=>loader.ensure();
+    sceneVisibility=ViewerLifecycle.observeVisibility(container,visible=>{if(visible)loader.ensure();});
+    if(iflineStudioOpen)await loader.ensure();
   } else {
     document.getElementById('skylineContainer').innerHTML = '<p style="color:white;padding:20px;">这个旧结果尚未生成 3D 场景。</p>';
   }
@@ -527,14 +2496,56 @@ async function showResult(data) {
 }
 
 async function initializePage() {
-  await Promise.allSettled([loadRegions(), loadSystemStatus(), loadRuns()]);
+  document.getElementById('iflineFallback').addEventListener('toggle',async()=>{
+    const fallback=document.getElementById('iflineFallback');
+    if(fallback.open){
+      if(!iflineMapData)await loadIfLineNetwork();
+      else {renderIfLineMap();if(iflineSelectedLinkId)selectIfLineLink(iflineSelectedLinkId);}
+    }
+    else {document.getElementById('iflineMap').replaceChildren();iflineLinkElements.clear();}
+  });
+  const scenarioName = document.getElementById('iflineScenarioName');
+  scenarioName.dataset.userEdited = 'false';
+  scenarioName.addEventListener('input', () => { scenarioName.dataset.userEdited = 'true'; });
+  const studioName = document.getElementById('iflineStudioName');
+  studioName.dataset.userEdited = 'false';
+  studioName.addEventListener('input', () => {
+    studioName.dataset.userEdited = 'true';
+    scenarioName.value = studioName.value;
+    scenarioName.dataset.userEdited = 'true';
+    refreshStudioRunButton();
+  });
+  window.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && iflineStudioOpen) closeIfLineStudio();
+  });
+  document.getElementById('iflineValue').addEventListener('input', suggestIfLineName);
+  updateIfLineValueField();
+  setStudioIntervention(document.getElementById('iflineType').value);
+  await Promise.allSettled([
+    loadRegions(), loadSystemStatus(), loadRuns(), loadIfLineBaselines(), loadIfLineScenarios(),
+    PlanningCases.load(openRecordedRun),
+  ]);
   const stored = localStorage.getItem('matsimActiveJob');
+  const requestedRun = new URLSearchParams(location.search).get('run');
+  if (requestedRun && !stored && !localStorage.getItem('matsimIfLineJob')) {
+    await openRecordedRun(requestedRun, new URLSearchParams(location.search).get('baseline'));
+  }
   if (stored) {
     try {
       const job = JSON.parse(stored);
       pollJob(job.id, job.startedAt || Date.now());
     } catch (_) {
       localStorage.removeItem('matsimActiveJob');
+    }
+  }
+  const storedIfLine = localStorage.getItem('matsimIfLineJob');
+  if (storedIfLine) {
+    try {
+      const job = JSON.parse(storedIfLine);
+      iflineSubmittedLinkId = job.linkId ? String(job.linkId) : null;
+      pollIfLineJob(job.id, job.runId, job.startedAt || Date.now());
+    } catch (_) {
+      localStorage.removeItem('matsimIfLineJob');
     }
   }
 }
@@ -578,43 +2589,6 @@ function makeLaneMarkingTexture() {
   return texture;
 }
 
-function makeFacadeTexture(kind = 'generic') {
-  // A handful of deliberately stylised facade grammars makes zoning legible
-  // at city scale.  They share a restrained palette, like a city-building
-  // game, while the real OSM footprint and height remain untouched.
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  const presets = {
-    residential: { frame:'#6f655e', glass:'#b9d0d2', lit:'#f3d99a', cols:6, rows:7 },
-    office:      { frame:'#44545d', glass:'#86aebc', lit:'#cde3df', cols:8, rows:9 },
-    retail:      { frame:'#675949', glass:'#9fc0c2', lit:'#f1cf7a', cols:5, rows:5 },
-    civic:       { frame:'#777064', glass:'#aebcc0', lit:'#ead8ad', cols:4, rows:6 },
-    industrial:  { frame:'#59615d', glass:'#869a98', lit:'#d7c895', cols:5, rows:3 },
-    generic:     { frame:'#646763', glass:'#9eb2b4', lit:'#ead7a1', cols:6, rows:6 },
-  };
-  const p = presets[kind] || presets.generic;
-  ctx.fillStyle = p.frame;
-  ctx.fillRect(0, 0, 128, 128);
-  const cellW = 128 / p.cols, cellH = 128 / p.rows;
-  for (let r = 0; r < p.rows; r++) {
-    for (let c = 0; c < p.cols; c++) {
-      const litHash = (r * 928371 + c * 12007) % 100;
-      ctx.fillStyle = litHash < 18 ? p.lit : p.glass;
-      const pad = cellW * 0.14;
-      ctx.fillRect(c * cellW + pad, r * cellH + pad, cellW - pad * 2, cellH - pad * 2);
-    }
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.encoding = THREE.LinearEncoding;
-  const sceneUnitsPerWindow = kind === 'office' ? 1.8 : 2.4;
-  texture.repeat.set(1 / sceneUnitsPerWindow, 1 / sceneUnitsPerWindow);
-  return texture;
-}
-
 function makeTextSprite(text) {
   // Canvas-rendered text on a small dark pill background, used as a
   // billboarded (always-faces-camera) landmark name label - the only way
@@ -645,7 +2619,7 @@ function makeTextSprite(text) {
   const texture = new THREE.CanvasTexture(canvas);
   const mat = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true });
   const sprite = new THREE.Sprite(mat);
-  const worldPerPixel = 0.038;
+  const worldPerPixel = 0.028;
   sprite.scale.set(canvas.width * worldPerPixel, canvas.height * worldPerPixel, 1);
   sprite.renderOrder = 999;
   return sprite;
@@ -660,16 +2634,17 @@ function initSkylineViewer(container) {
   scene.background = makeSkyTexture();
   // Keep the playable city crisp.  Fog begins beyond the model instead of
   // washing every facade toward gray at the default camera distance.
-  scene.fog = new THREE.Fog(0xc8dce4, 500, 850);
+  scene.fog = new THREE.Fog(0xc8dce4, 620, 1080);
 
   // A narrower field of view gives the compact, almost-isometric miniature
   // look used by city-building games while preserving free orbit controls.
-  const camera = new THREE.PerspectiveCamera(34, width / height, 0.5, 2200);
+  // Use the same depth-safe camera/target setup as the browser regression.
+  const camera = SkylineRendering.createCamera(width / height);
   const startAngle = Math.PI * 0.25;
   const orbitRadius = 390;
   camera.position.set(Math.cos(startAngle) * orbitRadius, 255, Math.sin(startAngle) * orbitRadius);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference:'high-performance' });
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
@@ -679,7 +2654,7 @@ function initSkylineViewer(container) {
   // second sRGB curve washes the terrain and roofs nearly white.
   renderer.outputEncoding = THREE.LinearEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.82;
+  renderer.toneMappingExposure = 0.94;
   container.appendChild(renderer.domElement);
 
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -695,23 +2670,44 @@ function initSkylineViewer(container) {
   controls.addEventListener('start', stopAutoRotate);
 
   const cityViewButton = document.getElementById('simViewCity');
+  const districtViewButton = document.getElementById('simViewDistrict');
   const topViewButton = document.getElementById('simViewTop');
+  const impactViewButton = document.getElementById('simViewImpact');
   const setCameraPreset = (preset) => {
     controls.autoRotate = false;
+    camera.fov=34;camera.updateProjectionMatrix();
     controls.target.set(0, 8, 0);
     if (preset === 'top') {
       camera.position.set(0, 520, 180);
     } else {
       camera.position.set(Math.cos(startAngle) * orbitRadius, 255, Math.sin(startAngle) * orbitRadius);
-      controls.autoRotate = true;
+      controls.autoRotate = !iflineStudioOpen;
     }
     camera.lookAt(controls.target);
     controls.update();
   };
   const onCityView = () => setCameraPreset('city');
   const onTopView = () => setCameraPreset('top');
+  const setCameraFocus = (x, y, z, radius = 130) => {
+    controls.autoRotate = false;
+    controls.target.set(x, y, z);
+    camera.position.set(
+      x + Math.cos(startAngle) * radius,
+      y + Math.max(55, radius * 0.58),
+      z + Math.sin(startAngle) * radius,
+    );
+    camera.lookAt(controls.target);
+    controls.update();
+  };
+  scene.userData.setCameraFocus = setCameraFocus;
   cityViewButton.addEventListener('click', onCityView);
+  const onDistrictView = () => scene.userData.focusDistrict?.();
+  districtViewButton.addEventListener('click', onDistrictView);
   topViewButton.addEventListener('click', onTopView);
+  const onImpactView = () => {
+    if (scene.userData.focusImpact) scene.userData.focusImpact();
+  };
+  impactViewButton.addEventListener('click', onImpactView);
 
   // Movable viewpoint: WASD/arrow keys fly the camera (and what it's
   // orbiting around) across the city, on top of drag-to-rotate/scroll-to-
@@ -733,6 +2729,8 @@ function initSkylineViewer(container) {
     if (action === 'left') moveState.right = active ? -1 : (moveState.right < 0 ? 0 : moveState.right);
   }
   const onKeyDown = (e) => {
+    if(['suspended','disposed'].includes(container.dataset.renderState))return;
+    if(e.defaultPrevented || e.target.closest?.('input,textarea,select,[role=slider],[contenteditable=true]'))return;
     const action = keyMap[e.code];
     if (action) { setMove(action, true); controls.autoRotate = false; e.preventDefault(); }
   };
@@ -759,9 +2757,9 @@ function initSkylineViewer(container) {
 
   // Clear-day palette: bright blue-sky fill from above, warm neutral sun -
   // ground and roads need to read clearly, not just glow in the dark.
-  scene.add(new THREE.HemisphereLight(0xe2f2ff, 0x40543d, 0.8));
-  scene.add(new THREE.AmbientLight(0xffffff, 0.08));
-  const sun = new THREE.DirectionalLight(0xfff0d0, 0.94);
+  scene.add(new THREE.HemisphereLight(0xe4f2ff, 0x9aab99, 0.9));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.18));
+  const sun = new THREE.DirectionalLight(0xfff4e5, 1.05);
   // High midday sun angle (~63° elevation), not a low grazing one - at low
   // angles, tall buildings cast very long shadows that read as confusing
   // diagonal streaks across the whole scene, especially from a near-overhead
@@ -775,63 +2773,99 @@ function initSkylineViewer(container) {
   sun.shadow.camera.bottom = -260;
   sun.shadow.camera.near = 10;
   sun.shadow.camera.far = 700;
-  sun.shadow.bias = -0.0015;
+  // The previous large negative bias made roof/road shadows crawl and split
+  // as the camera moved.  A small bias plus normalBias is much more stable on
+  // the low-poly geometry used here.
+  sun.shadow.bias = -0.00025;
+  sun.shadow.normalBias = 0.035;
   scene.add(sun);
-  const rim = new THREE.DirectionalLight(0xc9e5f2, 0.24);
+  const rim = new THREE.DirectionalLight(0xc9e5f2, 0.3);
   rim.position.set(200, 120, -180);
   scene.add(rim);
 
-  const composer = new THREE.EffectComposer(renderer);
-  composer.addPass(new THREE.RenderPass(scene, camera));
-  const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(width, height), 0.16, 0.25, 0.82);
-  composer.addPass(bloom);
+  const pipeline = SkylineRendering.createPipeline(renderer, scene, camera);
+  const composer = pipeline.composer;
 
   // Per-frame hooks other setup code (e.g. the vehicle animation) can push
   // into, without this function needing to know about them in advance.
   scene.userData.tickCallbacks = [];
   scene.userData.cleanupCallbacks = [];
-  const clock = new THREE.Clock();
+  scene.userData.camera = camera;
+  scene.userData.renderer = renderer;
+  scene.userData.controls = controls;
+  scene.userData.container = container;
   let disposed = false;
-  let animationFrame = null;
-
-  function animate() {
-    if (disposed) return;
-    animationFrame = requestAnimationFrame(animate);
+  const frames = ViewerLifecycle.frameLoop({
+    request:callback=>requestAnimationFrame(callback), cancel:id=>cancelAnimationFrame(id),
+    state:state=>{container.dataset.renderState=state;},
+    draw:dt=>{
     applyMovement();
-    controls.update();
-    const dt = clock.getDelta();
+    const cameraChanged=controls.update();
+    // Clamp AFTER OrbitControls applies rotation/damping, not before it can
+    // move the eye back below the surface during this very same frame.
+    SkylineRendering.keepCameraAboveGround(camera, controls, scene.userData.groundY);
     for (const cb of scene.userData.tickCallbacks) cb(dt);
     composer.render();
-  }
-  animate();
+    return cameraChanged || controls.autoRotate || moveState.forward || moveState.right || scene.userData.playbackActive?.() || false;
+    },
+  });
+  const visibility=ViewerLifecycle.observeVisibility(container,visible=>{
+    if(!visible){moveState.forward=0;moveState.right=0;}
+    frames.setVisible(visible);
+  });
+  const requestRender=()=>frames.invalidate();
+  scene.userData.requestRender=requestRender;
+  controls.addEventListener('change',requestRender);
+  // UI edits (including paused-road editing and timeline scrubbing) wake a
+  // single render. Orbit damping/playback alone keep continuous frames alive.
+  for(const type of ['input','change','click','keydown','keyup'])document.addEventListener(type,requestRender);
+  for(const type of ['pointerdown','pointermove','pointerup','pointerleave','pointercancel'])container.addEventListener(type,requestRender);
 
   const onResize = () => {
+    visibility.check();
     const w = container.clientWidth, h = container.clientHeight;
     if (w === 0 || h === 0) return;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     composer.setSize(w, h);
+    frames.invalidate();
   };
+  scene.userData.resize = onResize;
   window.addEventListener('resize', onResize);
 
   scene.userData.dispose = () => {
     if (disposed) return;
     disposed = true;
-    if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+    visibility.dispose();
+    frames.dispose();
+    controls.removeEventListener('change',requestRender);
+    for(const type of ['input','change','click','keydown','keyup'])document.removeEventListener(type,requestRender);
+    for(const type of ['pointerdown','pointermove','pointerup','pointerleave','pointercancel'])container.removeEventListener(type,requestRender);
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('resize', onResize);
     controls.removeEventListener('start', stopAutoRotate);
     cityViewButton.removeEventListener('click', onCityView);
+    districtViewButton.removeEventListener('click', onDistrictView);
     topViewButton.removeEventListener('click', onTopView);
+    impactViewButton.removeEventListener('click', onImpactView);
+    impactViewButton.style.display = 'none';
     controls.dispose();
     for (const cleanup of scene.userData.cleanupCallbacks) cleanup();
+    const textures=new Set(),materialsSeen=new Set();
     scene.traverse(object => {
       if (object.geometry) object.geometry.dispose();
       const materials = object.material ? (Array.isArray(object.material) ? object.material : [object.material]) : [];
-      for (const material of materials) material.dispose();
+      for (const material of materials) {
+        if(materialsSeen.has(material))continue;materialsSeen.add(material);
+        for(const value of Object.values(material))if(value?.isTexture)textures.add(value);
+        material.dispose();
+      }
     });
+    if(scene.background?.isTexture)textures.add(scene.background);
+    textures.forEach(texture=>texture.dispose());
+    pipeline.dispose();
     renderer.dispose();
     container.innerHTML = '';
   };
@@ -839,16 +2873,69 @@ function initSkylineViewer(container) {
   return scene;
 }
 
+function prepareVisualTerrain(terrain) {
+  // The stored DEM is intentionally compact (44x44), which is enough for
+  // analysis but too coarse to expose directly in a full-screen oblique
+  // view.  Smooth one cell neighbourhood and upsample it before rendering;
+  // this preserves the measured relief while preventing the source grid
+  // from reading as large triangular tiles across the whole city.
+  const { nx, nz, heights } = terrain;
+  if (nx < 2 || nz < 2 || heights.length !== nx * nz) return terrain;
+
+  const smoothed = new Float32Array(nx * nz);
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      let weighted = 0, total = 0;
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          const si = Math.max(0, Math.min(nx - 1, i + di));
+          const sj = Math.max(0, Math.min(nz - 1, j + dj));
+          const weight = di === 0 && dj === 0 ? 4 : (di === 0 || dj === 0 ? 2 : 1);
+          weighted += heights[sj * nx + si] * weight;
+          total += weight;
+        }
+      }
+      smoothed[j * nx + i] = weighted / total;
+    }
+  }
+
+  const factor = 3;
+  const outNx = Math.min(160, (nx - 1) * factor + 1);
+  const outNz = Math.min(160, (nz - 1) * factor + 1);
+  const outHeights = new Array(outNx * outNz);
+  for (let j = 0; j < outNz; j++) {
+    const fz = (j / (outNz - 1)) * (nz - 1);
+    const j0 = Math.min(nz - 2, Math.floor(fz));
+    const tz = fz - j0;
+    for (let i = 0; i < outNx; i++) {
+      const fx = (i / (outNx - 1)) * (nx - 1);
+      const i0 = Math.min(nx - 2, Math.floor(fx));
+      const tx = fx - i0;
+      const h00 = smoothed[j0 * nx + i0];
+      const h10 = smoothed[j0 * nx + i0 + 1];
+      const h01 = smoothed[(j0 + 1) * nx + i0];
+      const h11 = smoothed[(j0 + 1) * nx + i0 + 1];
+      const h0 = h00 + (h10 - h00) * tx;
+      const h1 = h01 + (h11 - h01) * tx;
+      outHeights[j * outNx + i] = h0 + (h1 - h0) * tz;
+    }
+  }
+  return { ...terrain, nx:outNx, nz:outNz, heights:outHeights };
+}
+
 function buildTerrainMesh(terrain) {
   const { nx, nz, min_x, max_x, min_z, max_z, heights } = terrain;
   const geom = new THREE.BufferGeometry();
   const positions = new Float32Array(nx * nz * 3);
+  const uvs = new Float32Array(nx * nz * 2);
   for (let j = 0; j < nz; j++) {
     for (let i = 0; i < nx; i++) {
       const idx = j * nx + i;
       positions[idx * 3] = min_x + (max_x - min_x) * (i / (nx - 1));
       positions[idx * 3 + 1] = heights[idx];
       positions[idx * 3 + 2] = min_z + (max_z - min_z) * (j / (nz - 1));
+      uvs[idx * 2] = i / (nx - 1);
+      uvs[idx * 2 + 1] = j / (nz - 1);
     }
   }
   const indices = [];
@@ -860,29 +2947,26 @@ function buildTerrainMesh(terrain) {
   }
   geom.setIndex(indices);
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   const minHeight = Math.min(...heights);
-  const maxHeight = Math.max(...heights);
-  const lowColor = new THREE.Color(0x477c49);
-  const highColor = new THREE.Color(0x867b51);
-  const colors = new Float32Array(nx * nz * 3);
-  for (let i = 0; i < nx * nz; i++) {
-    const t = maxHeight > minHeight ? (heights[i] - minHeight) / (maxHeight - minHeight) : 0;
-    const c = lowColor.clone().lerp(highColor, t * 0.72);
-    colors[i * 3] = c.r;
-    colors[i * 3 + 1] = c.g;
-    colors[i * 3 + 2] = c.b;
-  }
-  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geom.computeVertexNormals();
 
-  const mat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.96, metalness:0, flatShading:false });
+  // A single restrained, unlit ground color keeps the elevation geometry
+  // intact without exposing either its triangles or changing slope-by-slope
+  // brightness across the full map.  Parks and objects provide the readable
+  // spatial variation above it.
+  const mat = new THREE.MeshBasicMaterial({
+    color:0x8b9887,
+    fog:true,
+    side:THREE.DoubleSide,
+  });
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.receiveShadow = true;
+  mesh.receiveShadow = false;
 
   // Continue the landscape beyond the data tile so the city sits in a world,
   // rather than looking like a rectangular board floating in the sky.
   const horizonGeom = new THREE.CircleGeometry(850, 96);
-  const horizonMat = new THREE.MeshBasicMaterial({ color:0x507b4a, fog:true });
+  const horizonMat = new THREE.MeshBasicMaterial({ color:0x8b9887, fog:true });
   const horizon = new THREE.Mesh(horizonGeom, horizonMat);
   horizon.rotation.x = -Math.PI / 2;
   horizon.position.y = minHeight - 1.2;
@@ -890,16 +2974,16 @@ function buildTerrainMesh(terrain) {
 
   const group = new THREE.Group();
   group.add(horizon, mesh);
+  group.userData.terrainMesh = mesh;
   return group;
 }
 
 function terrainHeightAt(terrain, x, z) {
-  // Bilinear-interpolate the *exact same* heightmap the ground mesh is built
-  // from, so roads/buildings are guaranteed to sit on (not under) the
-  // rendered surface - they were previously positioned using independently
-  // DEM-sampled node elevations, which don't always agree with the terrain
-  // mesh's own (differently-sampled) grid, letting the ground poke through
-  // and visually "swallow" bits of road.
+  // Interpolate on the exact two triangles used by buildTerrainMesh.  A
+  // bilinear patch is subtly different from those planar triangles and made
+  // independently draped objects cross the ground as the camera rotated.
+  // Matching the mesh diagonal (a-c-b / b-c-d) gives every ground-attached
+  // object the same surface equation as the visible terrain.
   const { nx, nz, min_x, max_x, min_z, max_z, heights } = terrain;
   const fx = ((x - min_x) / (max_x - min_x)) * (nx - 1);
   const fz = ((z - min_z) / (max_z - min_z)) * (nz - 1);
@@ -911,9 +2995,10 @@ function terrainHeightAt(terrain, x, z) {
   const h10 = heights[j0 * nx + i0 + 1];
   const h01 = heights[(j0 + 1) * nx + i0];
   const h11 = heights[(j0 + 1) * nx + i0 + 1];
-  const h0 = h00 + (h10 - h00) * tx;
-  const h1 = h01 + (h11 - h01) * tx;
-  return h0 + (h1 - h0) * tz;
+  if (tx + tz <= 1) {
+    return h00 + (h10 - h00) * tx + (h01 - h00) * tz;
+  }
+  return (1 - tz) * h10 + (1 - tx) * h01 + (tx + tz - 1) * h11;
 }
 
 function makeSegmentBox(start, end, width, height, material) {
@@ -940,6 +3025,70 @@ function pointInPolygon(x, z, points) {
   return inside;
 }
 
+function buildLandUseOverlay(terrainMesh, terrain, landmarks) {
+  // Paint land-use onto a clone of the terrain's *own* grid instead of
+  // laying separately-triangulated park polygons over it.  The clone shares
+  // the same vertices, indices and triangle diagonals as the ground, so no
+  // viewing angle can make the two surfaces intersect or expose triangular
+  // cuts.  A texture mask keeps the real OSM outlines without extra 3D
+  // geometry.
+  const size = 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const { min_x, max_x, min_z, max_z } = terrain;
+  const dx = Math.max(1e-6, max_x - min_x);
+  const dz = Math.max(1e-6, max_z - min_z);
+
+  function drawLayer(polygons, color, opacity) {
+    if (!polygons || !polygons.length) return;
+    // Build each category at full opacity on a temporary mask first.  This
+    // prevents overlapping OSM park fragments from becoming progressively
+    // darker and recreating the patchwork appearance.
+    const layer = document.createElement('canvas');
+    layer.width = layer.height = size;
+    const layerCtx = layer.getContext('2d');
+    layerCtx.fillStyle = color;
+    for (const entry of polygons) {
+      SkylineLanduse.paint(layerCtx, entry, ([x, z]) => [
+        ((x - min_x) / dx) * size, (1 - (z - min_z) / dz) * size,
+      ]);
+    }
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(layer, 0, 0);
+    ctx.restore();
+  }
+
+  // All categories use the same terrain surface; tint is not an elevated slab.
+  // Keep commercial subtle so it does not compete with the traffic overlay.
+  drawLayer(landmarks.commercial_zones || [], '#c2ad86', 0.16);
+  drawLayer(landmarks.parks || [], '#527b51', 0.46);
+  drawLayer(landmarks.water || [], '#4c8293', 0.90);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 4;
+  if (THREE.sRGBEncoding !== undefined) texture.encoding = THREE.sRGBEncoding;
+  const material = new THREE.MeshBasicMaterial({
+    map:texture,
+    transparent:true,
+    alphaTest:0.01,
+    depthWrite:false,
+    side:THREE.DoubleSide,
+    polygonOffset:true,
+    polygonOffsetFactor:-4,
+    polygonOffsetUnits:-4,
+  });
+  const overlay = new THREE.Mesh(terrainMesh.geometry.clone(), material);
+  overlay.position.y = 0.012;
+  overlay.renderOrder = -20;
+  overlay.userData.landUseOverlay = true;
+  return overlay;
+}
+
 function seededUnit(seed) {
   const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
   return value - Math.floor(value);
@@ -959,7 +3108,7 @@ function addParkTrees(scene, parks, groundY) {
     for (let attempt = 0; attempt < wanted * 10 && accepted < wanted && placements.length < 520; attempt++) {
       const x = minX + (maxX - minX) * seededUnit(pIndex * 977 + attempt * 17 + 1);
       const z = minZ + (maxZ - minZ) * seededUnit(pIndex * 613 + attempt * 29 + 7);
-      if (!pointInPolygon(x, z, points)) continue;
+      if (!SkylineLanduse.contains(parks[pIndex], x, z)) continue;
       placements.push({ x, z, scale:0.72 + seededUnit(pIndex * 83 + attempt * 41) * 0.7 });
       accepted++;
     }
@@ -973,7 +3122,7 @@ function addParkTrees(scene, parks, groundY) {
   const crownMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.95, flatShading:true });
   const crowns = new THREE.InstancedMesh(crownGeom, crownMat, placements.length);
   const dummy = new THREE.Object3D();
-  const greens = [0x4f7b50, 0x5e8956, 0x6d955f, 0x47734d];
+  const greens = [0x668c61, 0x779668, 0x8aa77b, 0x527b58];
   placements.forEach((tree, i) => {
     const y = groundY(tree.x, tree.z);
     dummy.position.set(tree.x, y + 0.9 * tree.scale, tree.z);
@@ -985,7 +3134,7 @@ function addParkTrees(scene, parks, groundY) {
     dummy.scale.set(tree.scale, tree.scale * 1.25, tree.scale);
     dummy.updateMatrix();
     crowns.setMatrixAt(i, dummy.matrix);
-    crowns.setColorAt(i, new THREE.Color(greens[i % greens.length]));
+    crowns.setColorAt(i, new THREE.Color(greens[i % greens.length]).convertSRGBToLinear());
   });
   crowns.instanceColor.needsUpdate = true;
   trunks.castShadow = crowns.castShadow = true;
@@ -1036,277 +3185,106 @@ function addStreetLights(scene, roads, groundY) {
 }
 
 function populateSkylineScene(scene, data) {
-  scene.add(buildTerrainMesh(data.terrain));
-  const groundY = (x, z) => terrainHeightAt(data.terrain, x, z) + 0.18;
+  // Only these explicit static solids may be batched. Domain objects, hit
+  // proxies, terrain, transparent ribbons and moving vehicles stay separate.
+  const staticSolids=[];
+  const visualTerrain = prepareVisualTerrain(data.terrain);
+  const terrainGroup = buildTerrainMesh(visualTerrain);
+  scene.add(terrainGroup);
+  const groundY = (x, z) => terrainHeightAt(visualTerrain, x, z) + 0.18;
+  scene.userData.terrainMesh = terrainGroup.userData.terrainMesh;
+  scene.userData.groundY = groundY;
+  scene.userData.coordinateTransform = data.coordinate_transform || null;
+  const isDifferenceScene = Boolean(data.ifline && data.ifline.display_mode === 'delay_difference');
+  scene.userData.isDifferenceScene = isDifferenceScene;
+  // Historic rank-coloured files remain untouched, but their rainbow is
+  // not presented as an absolute measurement. Read-only workbench can
+  // reanalyse their events with an explicit time window and fixed scale.
+  const trustedTrafficScale = isDifferenceScene
+    ? data.ifline.color_scale_version === 2 : data.traffic_metric?.version === 2;
+  if (isDifferenceScene && trustedTrafficScale) {
+    document.getElementById('sceneDescription').textContent = '3D 回放显示当前方案与其原始基线的全天路段差异（固定刻度）。上方工作台可另选参照方案、时段和方式；这些筛选不会改写本 3D 图层，精确对比请以上方已应用条件为准。';
+  }
+  if (!trustedTrafficScale) {
+    document.getElementById('sceneDescription').textContent = '历史 3D 城市回放：旧版自适应着色已隐藏，避免把排名颜色当绝对拥堵。上方影响工作台可按原始事件重新分析，提供固定色标。';
+    document.getElementById('trafficLegend').style.display = 'none';
+    document.getElementById('iflineLegend').style.display = 'none';
+  }
+  const directlyModifiedLinks = new Set(
+    isDifferenceScene ? (data.ifline.changed_link_ids || []).map(String) : [],
+  );
 
   // Real landmarks (parks/libraries/tram lines) - genuine OSM features for
   // this region, not decorative filler. See wrapper/skyline.py's
   // _load_landmarks() for provenance.
   const landmarks = data.landmarks || { parks: [], libraries: [], tram_lines: [], commercial_zones: [], buildings: [], labels: [] };
-
-  function drapedArea(points, material, lift) {
-    if (!points || points.length < 3) return null;
-    const shape = new THREE.Shape(points.map(([x, z]) => new THREE.Vector2(x, z)));
-    const geom = new THREE.ShapeGeometry(shape);
-    const pos = geom.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const wx = pos.getX(i);
-      const wz = pos.getY(i);
-      pos.setXYZ(i, wx, groundY(wx, wz) + lift, wz);
-    }
-    pos.needsUpdate = true;
-    geom.computeVertexNormals();
-    const mesh = new THREE.Mesh(geom, material);
-    mesh.receiveShadow = true;
-    return mesh;
-  }
-
-  // A very soft ground tint exposes commercial districts without replacing
-  // the real buildings with abstract blocks.
-  const commercialMat = new THREE.MeshStandardMaterial({
-    color:0xc49b58, transparent:true, opacity:0.16, roughness:1, depthWrite:false,
-  });
-  for (const zone of landmarks.commercial_zones || []) {
-    const mesh = drapedArea(zone.points, commercialMat, 0.05);
-    if (mesh) scene.add(mesh);
-  }
-
-  const parkMat = new THREE.MeshStandardMaterial({ color: 0x4f7f48, roughness: 0.9 });
-  for (const park of landmarks.parks) {
-    const mesh = drapedArea(park.points, parkMat, 0.14);
-    if (mesh) scene.add(mesh);
-  }
+  const coverage=data.landmark_diagnostics?.coverage?.status || 'unknown';
+  const omitted=data.landmark_diagnostics?.buildings?.omitted_by_limit || 0;
+  const coverageNote=document.getElementById('sceneCoverageNote');
+  coverageNote.textContent=`显示 ${(landmarks.buildings||[]).length.toLocaleString()} 个建筑体块（OSM 轮廓）。`+
+    (coverage==='complete'?'建筑源提取范围覆盖当前地图；缺失高度使用估算，不代表完整实测城市。':
+      coverage==='partial'?'建筑源尚未覆盖整张地图，空白区域不能视为没有建筑。':
+      '历史建筑层未记录完整覆盖范围，空白区域不能视为没有建筑。')+
+    (omitted?`此历史显示层另有 ${omitted} 栋建筑被旧数量上限省略。`:'');
+  const coverageContainer=document.getElementById('skylineContainer');
+  coverageContainer.dataset.buildingCount=String((landmarks.buildings||[]).length);
+  coverageContainer.dataset.buildingCoverage=coverage;
+  // A close architectural view is a camera preset, not an edit or a different
+  // data subset. Use this run's tallest buildings rather than fixed CBD coords.
+  const focusBuildings=(landmarks.buildings||[]).filter(b=>b.points?.length>=3)
+    .sort((a,b)=>Number(b.height)-Number(a.height)).slice(0,16);
+  scene.userData.focusDistrict=()=>{
+    if(!focusBuildings.length)return;
+    const centres=focusBuildings.map(b=>b.points.reduce((v,p)=>[v[0]+p[0]/b.points.length,v[1]+p[1]/b.points.length],[0,0]));
+    const x=centres.reduce((v,p)=>v+p[0],0)/centres.length,z=centres.reduce((v,p)=>v+p[1],0)/centres.length;
+    scene.userData.setCameraFocus(x,groundY(x,z)+3,z,95);
+  };
+  document.getElementById('simViewDistrict').disabled=!focusBuildings.length;
+  scene.add(buildLandUseOverlay(terrainGroup.userData.terrainMesh, visualTerrain, landmarks));
   addParkTrees(scene, landmarks.parks || [], groundY);
 
   // Tram lines: Melbourne's real tram network, raised slightly above the
   // road surface and kept a distinct gold color regardless of congestion -
   // trams run on their own right-of-way, not subject to car traffic jams.
-  const tramMat = new THREE.MeshStandardMaterial({
-    color: 0xb89b55, emissive: 0x7b682f, emissiveIntensity: 0.08, roughness: 0.45, metalness: 0.5,
-  });
+  // Thousands of tiny box meshes made the tram network look like broken
+  // sticks and cost thousands of draw calls.  One continuous line-segment
+  // layer is both clearer and stable while orbiting.
+  const tramPositions = [];
+  const seenTramSegments = new Set();
   for (const t of landmarks.tram_lines) {
-    const start = new THREE.Vector3(t.x1, groundY(t.x1, t.z1) + 0.72, t.z1);
-    const end = new THREE.Vector3(t.x2, groundY(t.x2, t.z2) + 0.72, t.z2);
-    const mesh = makeSegmentBox(start, end, 0.52, 0.13, tramMat);
-    if (mesh) scene.add(mesh);
+    const a = `${t.x1.toFixed(2)},${t.z1.toFixed(2)}`;
+    const b = `${t.x2.toFixed(2)},${t.z2.toFixed(2)}`;
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    if (seenTramSegments.has(key)) continue;
+    seenTramSegments.add(key);
+    tramPositions.push(
+      t.x1, groundY(t.x1, t.z1) + 0.62, t.z1,
+      t.x2, groundY(t.x2, t.z2) + 0.62, t.z2,
+    );
+  }
+  if (tramPositions.length) {
+    const tramGeom = new THREE.BufferGeometry();
+    tramGeom.setAttribute('position', new THREE.Float32BufferAttribute(tramPositions, 3));
+    const tramMat = new THREE.LineBasicMaterial({ color:0xc2a456, transparent:true, opacity:0.82 });
+    const tramLayer = new THREE.LineSegments(tramGeom, tramMat);
+    tramLayer.renderOrder = 5;
+    scene.add(tramLayer);
   }
 
-  // Libraries: a real landmark building - a wide low civic-building base
-  // (like a real library/museum footprint) with a small proportioned dome
-  // as a roof feature, not a tall thin cylinder (which just read as a pill).
-  for (const lib of landmarks.libraries) {
-    const libY = groundY(lib.x, lib.z);
-    const baseW = 13, baseD = 10, baseH = 9;
-    const baseGeom = new THREE.BoxGeometry(baseW, baseH, baseD);
-    const baseMat = new THREE.MeshStandardMaterial({ color: 0xd8cdb0, roughness: 0.7 });
-    const base = new THREE.Mesh(baseGeom, baseMat);
-    base.position.set(lib.x, libY + baseH / 2, lib.z);
-    base.castShadow = true;
-    base.receiveShadow = true;
-    scene.add(base);
+  // Library POIs used to add a second, invented box-and-dome building over
+  // the real OSM footprint.  The duplicated geometry was the source of the
+  // blue spheres and intersecting blocks visible in close views.  Libraries
+  // now remain represented by their real building plus the landmark label.
 
-    // A small stepped plinth under the dome, then the dome itself sized as
-    // a roof feature (well under the base's footprint), like a real civic
-    // building's cupola rather than matching the building's own width.
-    const drumGeom = new THREE.CylinderGeometry(2.6, 2.6, 1.6, 16);
-    const drum = new THREE.Mesh(drumGeom, baseMat);
-    drum.position.set(lib.x, libY + baseH + 0.8, lib.z);
-    drum.castShadow = true;
-    scene.add(drum);
-
-    const domeGeom = new THREE.SphereGeometry(2.6, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-    const domeMat = new THREE.MeshStandardMaterial({
-      color: 0x3b6ea5, emissive: 0x3b6ea5, emissiveIntensity: 0.3, roughness: 0.35, metalness: 0.2,
-    });
-    const dome = new THREE.Mesh(domeGeom, domeMat);
-    dome.position.set(lib.x, libY + baseH + 1.6, lib.z);
-    dome.castShadow = true;
-    scene.add(dome);
-  }
-
-  // Real building footprints: extruded from actual OSM outlines and real
-  // (or, absent OSM height/levels data, a plain default) heights - see
-  // wrapper/skyline.py's building extraction. Color comes from real OSM
-  // data too (building:colour tag, or a real-building-type palette) - see
-  // _building_color() server-side.
-  //
-  // Melbourne's real buildings are not flat matchboxes, so two kinds of
-  // real architectural detail are added on top of the plain extrusion:
-  // (1) a window-grid facade texture on the side walls (ExtrudeGeometry
-  // puts caps in material group 0 and side walls in group 1 - confirmed by
-  // reading three.js's own source rather than assuming, since getting this
-  // backwards would put the window texture on the roof instead of the walls),
-  // and (2) tiered setback crowns (+ a thin spire for genuine skyscrapers)
-  // on the tallest real buildings, similar to how actual Melbourne towers
-  // (Eureka Tower, 101 Collins St, etc) step back or taper near the top
-  // rather than ending in a flat slab.
-  const facadeTextures = new Map();
-  function facadeTexture(kind) {
-    if (!facadeTextures.has(kind)) facadeTextures.set(kind, makeFacadeTexture(kind));
-    return facadeTextures.get(kind);
-  }
-  const capMatCache = new Map();
-  function capMaterial(colorHex, kind) {
-    const key = `${kind}:${colorHex}`;
-    if (!capMatCache.has(key)) {
-      const roofColor = new THREE.Color(colorHex).lerp(new THREE.Color(0xcfc5ae), kind === 'office' ? 0.05 : 0.11);
-      capMatCache.set(key, new THREE.MeshStandardMaterial({ color:roofColor, roughness:0.88, metalness:kind === 'office' ? 0.2 : 0.03 }));
-    }
-    return capMatCache.get(key);
-  }
-  const sideMatCache = new Map();
-  function sideMaterial(colorHex, kind) {
-    const key = `${kind}:${colorHex}`;
-    if (!sideMatCache.has(key)) {
-      const texture = facadeTexture(kind);
-      sideMatCache.set(key, new THREE.MeshStandardMaterial({
-        color:colorHex, map:texture, emissiveMap:texture,
-        emissive:kind === 'retail' ? 0xe8c16b : 0xb8c9c7,
-        emissiveIntensity:kind === 'retail' ? 0.11 : 0.055,
-        roughness:kind === 'office' ? 0.36 : 0.72,
-        metalness:kind === 'office' ? 0.32 : 0.06,
-      }));
-    }
-    return sideMatCache.get(key);
-  }
-  const crownMatCache = new Map();
-  function crownMaterial(colorHex, kind) {
-    const key = `${kind}:${colorHex}`;
-    if (!crownMatCache.has(key)) {
-      const crownColor = new THREE.Color(colorHex).lerp(new THREE.Color(0xdbe4e3), 0.24);
-      crownMatCache.set(key, new THREE.MeshStandardMaterial({ color:crownColor, roughness:0.52, metalness:kind === 'office' ? 0.32 : 0.08 }));
-    }
-    return crownMatCache.get(key);
-  }
-  const spireMat = new THREE.MeshStandardMaterial({ color: 0xcfd4d8, roughness: 0.3, metalness: 0.6 });
-  const awningMats = {
-    retail: new THREE.MeshStandardMaterial({ color:0x8f4e45, roughness:0.75 }),
-    civic: new THREE.MeshStandardMaterial({ color:0x6e756d, roughness:0.8 }),
-    industrial: new THREE.MeshStandardMaterial({ color:0x596460, roughness:0.7, metalness:0.18 }),
-  };
-  let detailCount = 0;
-
+  // Schematic daytime architecture, not surveyed facade colours. A bounded
+  // material palette is shared across buildings and the static batch renderer.
+  // Footprints/heights/roof profiles remain the prepared geometry's authority.
+  const buildingStyle = SkylineBuildingStyle.createPalette(THREE);
   for (const b of landmarks.buildings || []) {
-    if (b.points.length < 3) continue;
-    const height = Math.max(b.height, 1.5);
-    const shape = new THREE.Shape(b.points.map(([x, z]) => new THREE.Vector2(x, z)));
-    const geom = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
-    // ExtrudeGeometry extrudes along local Z by default; rotate it onto Y
-    // (up) and shift back into the [0, height] range the rotation leaves
-    // inverted - fine either way since a straight extrusion looks
-    // identical from both ends.
-    geom.rotateX(Math.PI / 2);
-    geom.translate(0, height, 0);
-    const heightM = b.height_m || 9;
-    let kind = b.kind || 'generic';
-    if (kind === 'generic' && heightM >= 45) kind = 'office';
-    const buildingName = (b.name || '').toLowerCase();
-    let color = b.color || '#b0a890';
-    // A few genuine skyline anchors receive restrained material accents.
-    // Their footprint and height remain data-driven; these accents make the
-    // locations recognizable without turning them into oversized mascots.
-    if (buildingName.includes('eureka tower')) color = '#3f7188';
-    else if (buildingName.includes('rialto')) color = '#456778';
-    else if (buildingName.includes('101 collins')) color = '#58747f';
-    else if (buildingName.includes('melbourne central')) color = '#70685f';
-    const mesh = new THREE.Mesh(geom, [capMaterial(color, kind), sideMaterial(color, kind)]);
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, sumX = 0, sumZ = 0;
-    for (const [x, z] of b.points) {
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
-      sumX += x; sumZ += z;
-    }
-    const cx = sumX / b.points.length, cz = sumZ / b.points.length;
-    const bboxW = Math.max(0.5, maxX - minX), bboxD = Math.max(0.5, maxZ - minZ);
-    const baseY = groundY(cx, cz);
-    mesh.position.y = baseY;
-    mesh.castShadow = heightM >= 18;
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-
-    if (buildingName.includes('eureka tower') && heightM >= 120) {
-      const goldMat = new THREE.MeshStandardMaterial({ color:0xc7a94c, roughness:0.34, metalness:0.38 });
-      const bandH = Math.max(0.65, Math.min(1.25, height * 0.035));
-      const band = new THREE.Mesh(new THREE.BoxGeometry(bboxW * 0.93, bandH, bboxD * 0.93), goldMat);
-      band.position.set(cx, baseY + height - bandH * 0.8, cz);
-      band.castShadow = true;
-      scene.add(band);
-    }
-    if (buildingName === 'melbourne central' && heightM < 90) {
-      const glassMat = new THREE.MeshStandardMaterial({
-        color:0x7fa9b1, transparent:true, opacity:0.72,
-        roughness:0.2, metalness:0.42, side:THREE.DoubleSide,
-      });
-      const radius = Math.max(1.2, Math.min(4.8, Math.min(bboxW, bboxD) * 0.34));
-      const glassCone = new THREE.Mesh(new THREE.ConeGeometry(radius, Math.max(2.2, radius * 0.95), 18, 1, true), glassMat);
-      glassCone.position.set(cx, baseY + height + Math.max(1.1, radius * 0.48), cz);
-      glassCone.castShadow = true;
-      scene.add(glassCone);
-    }
-
-    const style = seededUnit(cx * 7.13 + cz * 11.71);
-    if ((kind === 'office' || heightM >= 70) && heightM >= 48) {
-      // Tiered setback crown: each tier a bit smaller than the last,
-      // stepping in toward the top rather than ending in one flat slab -
-      // real skyscraper towers like 101 Collins St step back this way.
-      const tiers = heightM >= 150 ? 3 : (style > 0.55 ? 2 : 1);
-      let curW = bboxW, curD = bboxD, curY = baseY + height;
-      const cMat = crownMaterial(color, kind);
-      for (let i = 0; i < tiers; i++) {
-        curW *= 0.7; curD *= 0.7;
-        const tierH = Math.max(0.7, Math.min(2.2, (bboxW + bboxD) * 0.055));
-        const tierGeom = new THREE.BoxGeometry(Math.max(curW, 1), tierH, Math.max(curD, 1));
-        const tierMesh = new THREE.Mesh(tierGeom, cMat);
-        tierMesh.position.set(cx, curY + tierH / 2, cz);
-        tierMesh.castShadow = true;
-        scene.add(tierMesh);
-        curY += tierH;
-      }
-      if (heightM >= 150) {
-        // A thin spire/antenna on genuine skyscrapers (Eureka Tower,
-        // Rialto Towers, etc all have one), not applied to ordinary towers.
-        const spireH = Math.max(3, Math.min(8, (bboxW + bboxD) * 0.2));
-        const spireGeom = new THREE.CylinderGeometry(0.12, 0.5, spireH, 8);
-        const spire = new THREE.Mesh(spireGeom, spireMat);
-        spire.position.set(cx, curY + spireH / 2, cz);
-        scene.add(spire);
-      }
-    } else if ((kind === 'residential' || kind === 'generic') && heightM <= 30 && detailCount < 520 && (b.roof !== 'flat' || style > 0.38)) {
-      // Low-rise neighbourhoods get simple hipped roofs.  This one change
-      // breaks up the endless flat-roof matchbox silhouette dramatically.
-      const roofH = Math.max(0.45, Math.min(2.1, height * 0.3));
-      const roofGeom = new THREE.ConeGeometry(1, roofH, 4);
-      const roof = new THREE.Mesh(roofGeom, crownMaterial(color, 'residential'));
-      roof.position.set(cx, baseY + height + roofH / 2, cz);
-      roof.rotation.y = Math.PI / 4;
-      roof.scale.set(bboxW / Math.SQRT2, 1, bboxD / Math.SQRT2);
-      roof.castShadow = true;
-      scene.add(roof);
-      detailCount++;
-    } else if (kind === 'retail' && detailCount < 620) {
-      // A shallow coloured awning gives retail frontages a readable street
-      // edge even from the default miniature-camera distance.
-      const awningGeom = new THREE.BoxGeometry(Math.max(1, bboxW * 0.68), 0.28, 0.65);
-      const awning = new THREE.Mesh(awningGeom, awningMats.retail);
-      awning.position.set(cx, baseY + Math.min(height * 0.42, 1.5), maxZ + 0.24);
-      awning.castShadow = true;
-      scene.add(awning);
-      detailCount++;
-    } else if (kind === 'civic' && detailCount < 670 && (b.heritage || style > 0.58)) {
-      const radius = Math.max(0.45, Math.min(2.2, Math.min(bboxW, bboxD) * 0.24));
-      const cupolaGeom = new THREE.SphereGeometry(radius, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2);
-      const cupola = new THREE.Mesh(cupolaGeom, crownMaterial(color, 'civic'));
-      cupola.position.set(cx, baseY + height, cz);
-      cupola.castShadow = true;
-      scene.add(cupola);
-      detailCount++;
-    } else if (kind === 'industrial' && detailCount < 720 && bboxW > 2 && bboxD > 2) {
-      const unitGeom = new THREE.BoxGeometry(Math.min(2.2, bboxW * 0.3), 0.55, Math.min(1.8, bboxD * 0.28));
-      const unit = new THREE.Mesh(unitGeom, awningMats.industrial);
-      unit.position.set(cx, baseY + height + 0.28, cz);
-      scene.add(unit);
-      detailCount++;
-    }
+    if (!b.points || b.points.length < 3 || !(Number(b.height) > 0)) continue;
+    const building=SkylineBuildings.create(THREE, b, groundY, buildingStyle(b));
+    scene.add(building);
+    building.traverse(object=>{if(object.isMesh)staticSolids.push(object);});
   }
 
   // Floating name labels for real, tall/notable landmarks (e.g. "Melbourne
@@ -1327,52 +3305,245 @@ function populateSkylineScene(scene, data) {
   // street itself swell or shrink.
   const laneTexture = makeLaneMarkingTexture();
   const DASH_PERIOD = 7;
-  const curbMat = new THREE.MeshStandardMaterial({ color:0xa9aaa3, roughness:0.96, metalness:0 });
-  const asphaltMat = new THREE.MeshStandardMaterial({ color:0x30383d, roughness:0.88, metalness:0.03 });
-  for (const r of data.roads) {
-    const width = r.width || 2.6;
-    const start = new THREE.Vector3(r.x1, groundY(r.x1, r.z1), r.z1);
-    const end = new THREE.Vector3(r.x2, groundY(r.x2, r.z2), r.z2);
+  const laneMaterial = new THREE.MeshStandardMaterial({
+    map:laneTexture, transparent:true, opacity:0.72, roughness:0.6, depthWrite:false,
+    polygonOffset:true, polygonOffsetFactor:-3, polygonOffsetUnits:-3,
+  });
+  const curbMat = new THREE.MeshStandardMaterial({ color:0xbcbeb4, roughness:0.96, metalness:0 });
+  const asphaltMat = new THREE.MeshStandardMaterial({ color:0x424f56, roughness:0.88, metalness:0.03 });
+  const walkPathMat = new THREE.MeshBasicMaterial({
+    color:0xaeb4a6, transparent:true, opacity:0.48, depthWrite:false,
+    polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1,
+  });
+  const bikePathMat = new THREE.MeshBasicMaterial({
+    color:0x66877a, transparent:true, opacity:0.56, depthWrite:false,
+    polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1,
+  });
+  const roadHitMat = new THREE.MeshBasicMaterial({
+    transparent:true, opacity:0, depthTest:false, depthWrite:false, colorWrite:false,
+  });
+  const impactPoints = [];
+  scene.userData.iflineRoadMeshes = new Map();
+  const roadIsCar = road => {
+    const modes = Array.isArray(road.modes) ? road.modes : [];
+    // Old cached scenes did not carry modes. Treat those as roads for
+    // backwards-compatible replay; newly generated scenes identify paths.
+    return road.car_editable !== undefined
+      ? Boolean(road.car_editable)
+      : (modes.length ? modes.includes('car') : true);
+  };
+  const physicalRoadKey = road => {
+    const a = `${Number(road.x1).toFixed(2)},${Number(road.z1).toFixed(2)},${road.height_from_m||0}`;
+    const b = `${Number(road.x2).toFixed(2)},${Number(road.z2).toFixed(2)},${road.height_to_m||0}`;
+    return a < b ? `${a}|${b}` : `${b}|${a}`;
+  };
+  const physicalRoadGroups = new Map();
+  for (const road of data.roads || []) {
+    const key = physicalRoadKey(road);
+    if (!physicalRoadGroups.has(key)) physicalRoadGroups.set(key, []);
+    physicalRoadGroups.get(key).push(road);
+  }
+  const positivePhysicalVolumes = [...physicalRoadGroups.values()]
+    .map(members => Math.max(0, ...members.filter(roadIsCar).map(road => Number(road.volume) || 0)))
+    .filter(volume => volume > 0)
+    .sort((a, b) => a - b);
+  const trafficVolumeCutoff = positivePhysicalVolumes.length
+    ? positivePhysicalVolumes[Math.floor((positivePhysicalVolumes.length - 1) * 0.64)]
+    : 0;
+  const roadJunctions = new Map();
+  const rememberJunction = (x, z, roadWidth, height=0,curbPadding=0.43) => {
+    const key = `${Number(x).toFixed(2)},${Number(z).toFixed(2)},${height}`;
+    const previous = roadJunctions.get(key);
+    if (!previous || roadWidth > previous.width) roadJunctions.set(key, { x, z, width:roadWidth,height,curbPadding });
+  };
+
+  // MATSim stores directed links, so a normal two-way street commonly has
+  // two car links plus coincident walk/bike links.  Drawing every record as
+  // another solid box created 1,078 duplicate surfaces in the CBD demo.
+  // Keep every link identity for editing, but render each physical segment
+  // once.  That removes the depth fighting which made roads flicker/cut as
+  // the camera moved.
+  for (const members of physicalRoadGroups.values()) {
+    const carMembers = members.filter(roadIsCar);
+    const visualCandidates = carMembers.length ? carMembers : members;
+    const r = [...visualCandidates].sort((a, b) => (Number(b.width) || 0) - (Number(a.width) || 0))[0];
+    const carRoad = carMembers.length > 0;
+    const modeSet = new Set(members.flatMap(road => Array.isArray(road.modes) ? road.modes : []));
+    const modes = [...modeSet];
+    const heightScale=data.coordinate_transform?.scene_units_per_metre || 1;
+    const width = r.physical_width_m ? r.physical_width_m*heightScale
+      : Math.max(...visualCandidates.map(road => Number(road.width) || 2.6));
+    const pathWidth = modes.includes('bike') ? 1.15 : 0.72;
+    const displayWidth = carRoad ? (r.physical_width_m ? width-2*heightScale : width) : Math.min(width, pathWidth);
+    const h0=(r.height_from_m||0)*heightScale,h1=(r.height_to_m||0)*heightScale;
+    const start = new THREE.Vector3(r.x1, groundY(r.x1, r.z1)+h0, r.z1);
+    const end = new THREE.Vector3(r.x2, groundY(r.x2, r.z2)+h1, r.z2);
+    // Only new concept roads use this profile. Keep the verified baseline
+    // rendering unchanged. One buffer mesh retains the link's pick identity.
+    const segmentBox=(s,e,w,h,m)=>r.physical_width_m ? CityRoadMesh.create(
+      THREE,s,e,w,h,m,groundY,h0,h1,s.y-start.y) : makeSegmentBox(s,e,w,h,m);
     const length = start.distanceTo(end);
     if (length < 0.5) continue;
 
-    const curbStart = start.clone().add(new THREE.Vector3(0, 0.13, 0));
-    const curbEnd = end.clone().add(new THREE.Vector3(0, 0.13, 0));
-    const curb = makeSegmentBox(curbStart, curbEnd, width + 0.86, 0.28, curbMat);
-    if (curb) { curb.receiveShadow = true; scene.add(curb); }
-
-    const roadStart = start.clone().add(new THREE.Vector3(0, 0.28, 0));
-    const roadEnd = end.clone().add(new THREE.Vector3(0, 0.28, 0));
-    const asphalt = makeSegmentBox(roadStart, roadEnd, width, 0.20, asphaltMat);
-    if (asphalt) { asphalt.receiveShadow = true; scene.add(asphalt); }
-
-    const hasTraffic = r.severity !== null && r.severity !== undefined ? true : (r.glow || 0) > 0.1;
-    if (hasTraffic) {
-      const color = new THREE.Color(r.color[0], r.color[1], r.color[2]);
-      const trafficMat = new THREE.MeshStandardMaterial({
-        color, emissive:color, emissiveIntensity:r.glow || 0.08,
-        roughness:0.48, metalness:0.02,
-      });
-      const trafficStart = start.clone().add(new THREE.Vector3(0, 0.42, 0));
-      const trafficEnd = end.clone().add(new THREE.Vector3(0, 0.42, 0));
-      const traffic = makeSegmentBox(trafficStart, trafficEnd, Math.max(0.68, Math.min(1.72, width * 0.3)), 0.075, trafficMat);
-      if (traffic) scene.add(traffic);
+    if (carRoad) {
+      rememberJunction(r.x1, r.z1, displayWidth,h0,r.physical_width_m?heightScale:0.43);
+      rememberJunction(r.x2, r.z2, displayWidth,h1,r.physical_width_m?heightScale:0.43);
+      const curbStart = start.clone().add(new THREE.Vector3(0, 0.13, 0));
+      const curbEnd = end.clone().add(new THREE.Vector3(0, 0.13, 0));
+      const curb = segmentBox(curbStart, curbEnd, width + (r.physical_width_m?0:0.86), 0.28, curbMat);
+      if (curb) { curb.receiveShadow = true; scene.add(curb); staticSolids.push(curb); }
     }
 
-    if (width >= 3.45) {
-      const lineTex = laneTexture.clone();
-      lineTex.needsUpdate = true;
-      lineTex.repeat.set(length / DASH_PERIOD, 1);
-      const lineMat = new THREE.MeshStandardMaterial({
-        map:lineTex, transparent:true, opacity:0.78, roughness:0.6, depthWrite:false,
+    const roadStart = start.clone().add(new THREE.Vector3(0, carRoad ? 0.28 : 0.23, 0));
+    const roadEnd = end.clone().add(new THREE.Vector3(0, carRoad ? 0.28 : 0.23, 0));
+    const bodyMaterial = carRoad ? asphaltMat : (modes.includes('bike') ? bikePathMat : walkPathMat);
+    const roadBody = segmentBox(roadStart, roadEnd, displayWidth, carRoad ? 0.20 : 0.10, bodyMaterial);
+    let hitMesh = null;
+    if (roadBody) {
+      roadBody.receiveShadow = true;
+      scene.add(roadBody);
+      if(carRoad)staticSolids.push(roadBody);
+    }
+    const memberLinks = members.filter(road => road.link_id !== null && road.link_id !== undefined);
+    if (roadBody && memberLinks.length) {
+      const preferred = [...(carMembers.length ? carMembers : memberLinks)].sort(
+        (a, b) => (Number(b.volume) || 0) - (Number(a.volume) || 0),
+      )[0];
+      const preferredLinkId = String(preferred.link_id);
+      roadBody.userData.iflineLinkId = preferredLinkId;
+      roadBody.userData.iflineLinkIds = memberLinks.map(road => String(road.link_id));
+      // The physical line can be only a few screen pixels wide. In editor
+      // mode use a much wider invisible corridor so a normal click selects
+      // the intended link without changing its visual width.
+      if (iflineStudioOpen) {
+        const hitStart = start.clone().add(new THREE.Vector3(0, 0.85, 0));
+        const hitEnd = end.clone().add(new THREE.Vector3(0, 0.85, 0));
+        const hitWidth = carRoad ? Math.max(6.5, width + 3.2) : Math.max(2.8, displayWidth + 1.5);
+        hitMesh = segmentBox(hitStart, hitEnd, hitWidth, 1.4, roadHitMat);
+        if (hitMesh) {
+          hitMesh.userData.iflineLinkId = preferredLinkId;
+          hitMesh.userData.iflineLinkIds = roadBody.userData.iflineLinkIds;
+          hitMesh.userData.iflineHitTarget = true;
+          scene.add(hitMesh);
+        }
+      }
+      for (const member of memberLinks) {
+        scene.userData.iflineRoadMeshes.set(String(member.link_id), { mesh:roadBody, hitMesh, road:member });
+      }
+    }
+
+    const directlyModified = members.some(road => directlyModifiedLinks.has(String(road.link_id)));
+    if (directlyModified) impactPoints.push([r.x1, r.z1], [r.x2, r.z2]);
+    let trafficSource = null;
+    if (carRoad && isDifferenceScene) {
+      const changed = carMembers.filter(road => directlyModifiedLinks.has(String(road.link_id)));
+      const measured = carMembers.filter(road => Math.abs(Number(road.delay_delta_seconds || 0)) >= 0.1);
+      const pool = changed.length ? changed : measured;
+      trafficSource = [...pool].sort(
+        (a, b) => Math.abs(Number(b.delay_delta_seconds || 0)) - Math.abs(Number(a.delay_delta_seconds || 0)),
+      )[0] || null;
+    } else if (carRoad) {
+      const groupPeakVolume = Math.max(0, ...carMembers.map(road => Number(road.volume) || 0));
+      const majorCorridor = groupPeakVolume >= trafficVolumeCutoff || width >= 5.4;
+      const measured = carMembers.filter(road => {
+        const measuredTraffic = (road.severity !== null && road.severity !== undefined) || (Number(road.glow) || 0) > 0.1;
+        // Navigation maps reserve traffic colour for useful corridors.  Keep
+        // the busiest third plus genuinely severe outliers; colouring every
+        // lightly-used local link produced a rainbow wireframe over the city.
+        return measuredTraffic && (majorCorridor || Number(road.severity) >= 0.88);
       });
-      const lineStart = start.clone().add(new THREE.Vector3(0, 0.48, 0));
-      const lineEnd = end.clone().add(new THREE.Vector3(0, 0.48, 0));
-      const line = makeSegmentBox(lineStart, lineEnd, Math.min(0.24, width * 0.055), 0.025, lineMat);
-      if (line) scene.add(line);
+      trafficSource = [...measured].sort(
+        (a, b) => (Number(b.severity) || 0) - (Number(a.severity) || 0),
+      )[0] || null;
+    }
+    if (trafficSource && trustedTrafficScale) {
+      const color = new THREE.Color(trafficSource.color[0], trafficSource.color[1], trafficSource.color[2]);
+      const trafficMat = new THREE.MeshBasicMaterial({
+        color, transparent:true, opacity:isDifferenceScene ? 0.92 : 0.88,
+        depthTest:true, depthWrite:false, toneMapped:false,
+        polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2,
+      });
+      const trafficStart = start.clone().add(new THREE.Vector3(0, 0.48, 0));
+      const trafficEnd = end.clone().add(new THREE.Vector3(0, 0.48, 0));
+      const ribbonWidth = isDifferenceScene
+        ? Math.max(directlyModified ? 1.6 : 1.0, Math.min(directlyModified ? 3.8 : 2.5, width * (directlyModified ? 0.88 : 0.52)))
+        : Math.max(0.68, Math.min(1.72, width * 0.3));
+      const traffic = segmentBox(trafficStart, trafficEnd, ribbonWidth, directlyModified ? 0.13 : 0.08, trafficMat);
+      if (traffic) {
+        if (isDifferenceScene) traffic.renderOrder = directlyModified ? 30 : 20;
+        scene.add(traffic);
+      }
+    }
+
+    if (carRoad && width >= 4.35) {
+      const lineStart = start.clone().add(new THREE.Vector3(0, 0.61, 0));
+      const lineEnd = end.clone().add(new THREE.Vector3(0, 0.61, 0));
+      const line = segmentBox(lineStart, lineEnd, Math.min(0.24, width * 0.055), 0.025, laneMaterial);
+      if (line) {
+        // Bake repeat into this segment's UVs; one shared texture replaces
+        // thousands of cloned GPU textures without changing dash spacing.
+        const uv=line.geometry.attributes.uv;
+        for(let i=0;i<uv.count;i++)uv.setX(i,uv.getX(i)*length/DASH_PERIOD);
+        scene.add(line);
+      }
     }
   }
-  addStreetLights(scene, data.roads || [], groundY);
+
+  // Round node caps join independently-oriented MATSim links into one
+  // continuous carriageway.  Without them, square-ended segments exposed
+  // small triangular gaps whenever the camera rotated around an junction.
+  if (roadJunctions.size) {
+    const junctions = [...roadJunctions.values()];
+    const curbGeom = new THREE.CylinderGeometry(1, 1, 0.29, 14);
+    const roadGeom = new THREE.CylinderGeometry(1, 1, 0.205, 14);
+    const curbJunctionMesh = new THREE.InstancedMesh(curbGeom, curbMat, junctions.length);
+    const roadJunctionMesh = new THREE.InstancedMesh(roadGeom, asphaltMat, junctions.length);
+    const dummy = new THREE.Object3D();
+    junctions.forEach((junction, index) => {
+      const y = groundY(junction.x, junction.z)+junction.height;
+      dummy.position.set(junction.x, y + 0.135, junction.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(junction.width / 2 + junction.curbPadding, 1, junction.width / 2 + junction.curbPadding);
+      dummy.updateMatrix();
+      curbJunctionMesh.setMatrixAt(index, dummy.matrix);
+      dummy.position.y = y + 0.285;
+      dummy.scale.set(junction.width / 2, 1, junction.width / 2);
+      dummy.updateMatrix();
+      roadJunctionMesh.setMatrixAt(index, dummy.matrix);
+    });
+    curbJunctionMesh.receiveShadow = roadJunctionMesh.receiveShadow = true;
+    scene.add(curbJunctionMesh, roadJunctionMesh);
+  }
+  const impactViewButton = document.getElementById('simViewImpact');
+  if (isDifferenceScene && impactPoints.length && scene.userData.setCameraFocus) {
+    const xs = impactPoints.map(point => point[0]);
+    const zs = impactPoints.map(point => point[1]);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+    const radius = Math.max(75, Math.min(180, span * 2.4 + 60));
+    scene.userData.focusImpact = () => scene.userData.setCameraFocus(
+      cx, groundY(cx, cz) + 5, cz, radius,
+    );
+    impactViewButton.style.display = 'inline-block';
+    scene.userData.focusImpact();
+  } else {
+    impactViewButton.style.display = 'none';
+  }
+  addStreetLights(scene, (data.roads || []).filter(r=>!r.height_from_m&&!r.height_to_m), groundY);
+
+  const batches=SkylineStaticBatches.create(THREE,scene,staticSolids);
+  scene.userData.cleanupCallbacks.push(batches.dispose);
+  scene.userData.staticBatchStats=batches.stats;
+  // Read-only diagnostics also help detect accidental reversion to per-object
+  // rendering. Counts are submissions before view culling, never FPS claims.
+  const container=scene.userData.container;
+  if(container){
+    container.dataset.appearanceVersion='daylight-facades-1';
+    container.dataset.staticSourceDraws=batches.stats.sourceDraws;
+    container.dataset.staticBatchDraws=batches.stats.batchDraws;
+    container.dataset.staticVertices=batches.stats.vertices;
+  }
 
   setupVehicleAnimation(scene, data, groundY);
 }
@@ -1384,6 +3555,28 @@ function formatSimClock(seconds) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// Sample one driven trip only. Half-open intervals prevent parked/end-point
+// ghosts; repeated timestamps select the last keyframe at that time.
+function sampleVehicleTrip(trip, time) {
+  if (trip.length < 2 || time < trip[0][0] || time >= trip[trip.length - 1][0]) return null;
+  let lo = 0, hi = trip.length - 1;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (trip[mid][0] <= time) lo = mid; else hi = mid;
+  }
+  const a = trip[lo], b = trip[hi], f = (time - a[0]) / (b[0] - a[0]);
+  let dx = b[1] - a[1], dz = b[3] - a[3];
+  // A stop must not inherit another vehicle's heading from a shared dummy.
+  if (Math.hypot(dx, dz) < 0.001) {
+    for (let j = lo; j > 0; j--) {
+      dx = a[1] - trip[j - 1][1]; dz = a[3] - trip[j - 1][3];
+      if (Math.hypot(dx, dz) >= 0.001) break;
+    }
+  }
+  return {x:a[1]+(b[1]-a[1])*f, z:a[3]+(b[3]-a[3])*f,
+    h:(a[4]||0)+((b[4]||0)-(a[4]||0))*f, yaw:Math.atan2(dx,dz)};
+}
+
 function setupVehicleAnimation(scene, data, groundY) {
   const vehicles = data.vehicles || [];
   const [rangeStart, rangeEnd] = data.sim_time_range || [0, 86400];
@@ -1392,171 +3585,203 @@ function setupVehicleAnimation(scene, data, groundY) {
   const activeCarsLabel = document.getElementById('simActiveCars');
   const playPauseBtn = document.getElementById('simPlayPause');
   const speedSelect = document.getElementById('simSpeed');
-  if (!vehicles.length || !slider) return;
-
-  // Two-tier body+cabin silhouette (not a single flat box) so cars read as
-  // actual cars from the default orbit view, with real color variety - a
-  // small palette of ordinary real-world car colors, assigned per-vehicle
-  // and kept stable for the whole run (not re-randomized every frame).
-  const BODY_W = 2.05, BODY_H = 0.82, BODY_L = 3.85;
-  const CABIN_W = 1.58, CABIN_H = 0.72, CABIN_L = 1.85;
-  const BODY_CENTER_Y = 0.84;
-  const CABIN_Y_OFFSET = BODY_H / 2 + CABIN_H / 2;
-  const CABIN_Z_OFFSET = -0.4; // sits slightly toward the rear, like a real greenhouse
-
-  const CAR_COLORS = [0xe9e8e2, 0x303437, 0xaeb6b8, 0xa84e43, 0x4e6f8d, 0x55715d, 0xb19b82, 0x8e3d39];
-
-  const bodyGeom = new THREE.BoxGeometry(BODY_W, BODY_H, BODY_L);
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.35 });
-  const carMesh = new THREE.InstancedMesh(bodyGeom, bodyMat, vehicles.length);
-  carMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  carMesh.castShadow = true;
-  carMesh.frustumCulled = false;
-  scene.add(carMesh);
-
-  const cabinGeom = new THREE.BoxGeometry(CABIN_W, CABIN_H, CABIN_L);
-  const cabinMat = new THREE.MeshStandardMaterial({ color: 0x1b1f24, roughness: 0.25, metalness: 0.6 });
-  const cabinMesh = new THREE.InstancedMesh(cabinGeom, cabinMat, vehicles.length);
-  cabinMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  cabinMesh.castShadow = true;
-  cabinMesh.frustumCulled = false;
-  scene.add(cabinMesh);
-
-  // Two dark axle/wheel bars give every moving unit an unmistakable car
-  // silhouette without loading heavyweight external 3D assets.
-  const axleGeom = new THREE.BoxGeometry(BODY_W + 0.28, 0.30, 0.36);
-  const axleMat = new THREE.MeshStandardMaterial({ color:0x202427, roughness:0.72, metalness:0.18 });
-  const axleMesh = new THREE.InstancedMesh(axleGeom, axleMat, vehicles.length * 2);
-  axleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  axleMesh.castShadow = true;
-  axleMesh.frustumCulled = false;
-  scene.add(axleMesh);
-
-  for (let i = 0; i < vehicles.length; i++) {
-    carMesh.setColorAt(i, new THREE.Color(CAR_COLORS[i % CAR_COLORS.length]));
+  const densitySelect = document.getElementById('simDensity');
+  if (!slider) return;
+  // Enhancement is opt-in and reset for every result, not inherited by a
+  // subsequent policy comparison. Display counts never enter result data.
+  let density = 1;
+  if (densitySelect) { densitySelect.value='1'; densitySelect.disabled=!vehicles.length; }
+  function publishCounts(real, illustrative) {
+    if (!activeCarsLabel) return;
+    activeCarsLabel.textContent = density === 1
+      ? real+' 辆仿真车' : '仿真 '+real+' · 示意 +'+illustrative;
+    activeCarsLabel.dataset.realCars=String(real);
+    activeCarsLabel.dataset.illustrativeCars=String(illustrative);
+    activeCarsLabel.dataset.displayCars=String(real+illustrative);
+    activeCarsLabel.dataset.density=String(density);
   }
-  carMesh.instanceColor.needsUpdate = true;
+  playPauseBtn.disabled=!vehicles.length;
+  playPauseBtn.textContent=vehicles.length?'暂停':'无车辆回放';
+  if (!vehicles.length) {
+    scene.userData.playbackActive=()=>false;
+    slider.min=rangeStart;slider.max=rangeEnd;slider.value=rangeStart;
+    clockLabel.textContent=formatSimClock(rangeStart);
+    publishCounts(0,0);
+    return;
+  }
 
-  const dummy = new THREE.Object3D();
-  const cabinDummy = new THREE.Object3D();
-  const axleDummy = new THREE.Object3D();
-  const zeroScale = new THREE.Matrix4().makeScale(0, 0, 0);
+  // Half the old dimensions, without scaling the road/deck clearance.
+  // These are readable miniatures, not engineering-scale vehicle envelopes.
+  const MODEL_SCALE=0.5, ROAD_CLEARANCE=0.35, MAX_DENSITY=5;
+  const BODY_W=2.05, BODY_H=0.82, BODY_L=3.85;
+  const CABIN_W=1.58, CABIN_H=0.72, CABIN_L=1.85;
+  const BODY_CENTER_Y=ROAD_CLEARANCE+(0.34+0.15)*MODEL_SCALE;
+  const CABIN_Y_OFFSET=(BODY_H/2+CABIN_H/2)*MODEL_SCALE;
+  // Readable paint colours at miniature scale; dark glass must not become
+  // the entire roof when viewed from above. Colours carry no traffic metric.
+  const CAR_COLORS=[0xf4f1e8,0xc9d5dd,0x76b9df,0xe48472,0xf0cd72,0x99c7b4,0xeee9de,0x72899e];
+  const capacity=vehicles.length*MAX_DENSITY;
+  function makeInstances(name, geometry, material, count, painted=false) {
+    const mesh=new THREE.InstancedMesh(geometry,material,count);
+    mesh.name=name;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // r128 setColorAt allocates using mesh.count, NOT matrix capacity. Once
+    // count is compacted to 0 (or a small active frame), lazy allocation would
+    // leave later colours out of bounds. Allocate the full buffer up front.
+    if(painted) {
+      mesh.instanceColor=new THREE.InstancedBufferAttribute(new Float32Array(count*3).fill(1),3);
+      mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    }
+    mesh.castShadow=true;
+    mesh.frustumCulled=false;
+    mesh.count=0;
+    scene.add(mesh);
+    return mesh;
+  }
+  const paintMat=new THREE.MeshStandardMaterial({color:0xffffff,roughness:0.62,metalness:0.04});
+  const carMesh=makeInstances('vehicle-bodies',
+    new THREE.BoxGeometry(BODY_W,BODY_H,BODY_L),paintMat,capacity,true);
+  // Taper the greenhouse: sloping windscreens leave hood and trunk visible.
+  const cabinGeometry=new THREE.BoxGeometry(CABIN_W,CABIN_H,CABIN_L);
+  const cabinVertices=cabinGeometry.attributes.position;
+  for(let i=0;i<cabinVertices.count;i++)if(cabinVertices.getY(i)>0) {
+    cabinVertices.setX(i,cabinVertices.getX(i)*0.84);
+    cabinVertices.setZ(i,cabinVertices.getZ(i)*0.72);
+  }
+  cabinVertices.needsUpdate=true;
+  cabinGeometry.computeVertexNormals();
+  const cabinMesh=makeInstances('vehicle-cabins',
+    cabinGeometry,
+    new THREE.MeshStandardMaterial({color:0x7995a7,roughness:0.48,metalness:0.02}),capacity);
+  // Small opaque roof in the same paint as its car, not another dark window.
+  // Its bottom overlaps the glass top slightly, avoiding a coplanar surface.
+  const roofMesh=makeInstances('vehicle-roofs',
+    new THREE.BoxGeometry(CABIN_W*0.84+0.05,0.12,CABIN_L*0.72+0.06),paintMat,capacity,true);
+  const axleMesh=makeInstances('vehicle-axles',
+    new THREE.BoxGeometry(BODY_W+0.28,0.30,0.36),
+    new THREE.MeshStandardMaterial({color:0x202427,roughness:0.72,metalness:0.18}),capacity*2);
+  const palette=CAR_COLORS.map(c=>new THREE.Color(c));
+  // Keep the instanced-colour shader contract stable even if the first frame
+  // has no active vehicles and cars only enter the scene after scrubbing.
+  carMesh.setColorAt(0,palette[0]);
+  roofMesh.setColorAt(0,palette[0]);
+  const dummy=new THREE.Object3D(), cabinDummy=new THREE.Object3D(), axleDummy=new THREE.Object3D();
+  dummy.scale.setScalar(MODEL_SCALE);
+  cabinDummy.scale.setScalar(MODEL_SCALE);
+  axleDummy.scale.setScalar(MODEL_SCALE);
+  const metresToScene=Number(data.coordinate_transform?.scene_units_per_metre)||1;
+  let speedMultiplier=Number(speedSelect ? speedSelect.value : 4);
+  const requestedFocus=Number(data.sim_focus_time);
+  let simTime=Number.isFinite(requestedFocus)?Math.max(rangeStart,Math.min(rangeEnd,requestedFocus)):rangeStart;
+  let playing=true, userScrubbing=false;
+  scene.userData.playbackActive=()=>playing&&!userScrubbing;
+  slider.min=rangeStart;slider.max=rangeEnd;slider.value=simTime;
+  clockLabel.textContent=formatSimClock(simTime);
 
-  // Real-world speed: SPEED_MULTIPLIER simulated seconds pass per real
-  // second. Kept low enough that a car crossing a single (typically
-  // 50-150m) link still takes a visible fraction of a second on screen,
-  // rather than teleporting between intersections.
-  let speedMultiplier = Number(speedSelect ? speedSelect.value : 4);
-  const requestedFocus = Number(data.sim_focus_time);
-  let simTime = Number.isFinite(requestedFocus)
-    ? Math.max(rangeStart, Math.min(rangeEnd, requestedFocus))
-    : rangeStart;
-  let playing = true;
-  let userScrubbing = false;
-
-  slider.min = rangeStart;
-  slider.max = rangeEnd;
-  slider.value = simTime;
-  clockLabel.textContent = formatSimClock(simTime);
+  function place(slot, pose, colorIndex) {
+    dummy.position.set(pose.x,pose.y+BODY_CENTER_Y,pose.z);
+    dummy.rotation.set(0,pose.yaw,0);dummy.updateMatrix();
+    carMesh.setMatrixAt(slot,dummy.matrix);
+    carMesh.setColorAt(slot,palette[colorIndex % palette.length]);
+    cabinDummy.position.copy(dummy.position);cabinDummy.rotation.copy(dummy.rotation);
+    cabinDummy.translateY(CABIN_Y_OFFSET);cabinDummy.translateZ(-0.4*MODEL_SCALE);
+    cabinDummy.updateMatrix();cabinMesh.setMatrixAt(slot,cabinDummy.matrix);
+    cabinDummy.translateY((CABIN_H/2+0.035)*MODEL_SCALE);
+    cabinDummy.updateMatrix();roofMesh.setMatrixAt(slot,cabinDummy.matrix);
+    roofMesh.setColorAt(slot,palette[colorIndex % palette.length]);
+    axleDummy.position.copy(dummy.position);axleDummy.rotation.copy(dummy.rotation);
+    axleDummy.translateY(-0.34*MODEL_SCALE);axleDummy.translateZ(1.18*MODEL_SCALE);
+    axleDummy.updateMatrix();axleMesh.setMatrixAt(slot*2,axleDummy.matrix);
+    axleDummy.translateZ(-2.36*MODEL_SCALE);
+    axleDummy.updateMatrix();axleMesh.setMatrixAt(slot*2+1,axleDummy.matrix);
+  }
 
   function updateVehiclePositions() {
-    let activeCount = 0;
-    for (let i = 0; i < vehicles.length; i++) {
-      const trips = vehicles[i].trips;
-      let placed = false;
-      for (const trip of trips) {
-        const firstT = trip[0][0], lastT = trip[trip.length - 1][0];
-        if (simTime < firstT || simTime > lastT) continue;
-        let kf0 = trip[0], kf1 = trip[trip.length - 1];
-        for (let j = 0; j < trip.length - 1; j++) {
-          if (simTime >= trip[j][0] && simTime <= trip[j + 1][0]) {
-            kf0 = trip[j]; kf1 = trip[j + 1];
-            break;
-          }
-        }
-        const [t0, x0, _y0, z0] = kf0;
-        const [t1, x1, _y1, z1] = kf1;
-        const frac = t1 > t0 ? Math.max(0, Math.min(1, (simTime - t0) / (t1 - t0))) : 0;
-        const x = x0 + (x1 - x0) * frac;
-        const z = z0 + (z1 - z0) * frac;
-        const y = groundY(x, z);
-        dummy.position.set(x, y + BODY_CENTER_Y, z);
-        const dx = x1 - x0, dz = z1 - z0;
-        if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
-          dummy.rotation.set(0, Math.atan2(dx, dz), 0);
-        }
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        carMesh.setMatrixAt(i, dummy.matrix);
-
-        cabinDummy.position.copy(dummy.position);
-        cabinDummy.rotation.copy(dummy.rotation);
-        cabinDummy.scale.set(1, 1, 1);
-        cabinDummy.translateY(CABIN_Y_OFFSET);
-        cabinDummy.translateZ(CABIN_Z_OFFSET);
-        cabinDummy.updateMatrix();
-        cabinMesh.setMatrixAt(i, cabinDummy.matrix);
-
-        axleDummy.position.copy(dummy.position);
-        axleDummy.rotation.copy(dummy.rotation);
-        axleDummy.scale.set(1, 1, 1);
-        axleDummy.translateY(-0.34);
-        axleDummy.translateZ(1.18);
-        axleDummy.updateMatrix();
-        axleMesh.setMatrixAt(i * 2, axleDummy.matrix);
-        axleDummy.translateZ(-2.36);
-        axleDummy.updateMatrix();
-        axleMesh.setMatrixAt(i * 2 + 1, axleDummy.matrix);
-        placed = true;
-        activeCount++;
+    const active=[];
+    for(let i=0;i<vehicles.length;i++) {
+      for(const trip of vehicles[i].trips) {
+        const pose=sampleVehicleTrip(trip,simTime);
+        if(!pose)continue;
+        pose.y=groundY(pose.x,pose.z)+pose.h*metresToScene;
+        active.push({trip,pose,index:i});
         break;
       }
-      if (!placed) {
-        carMesh.setMatrixAt(i, zeroScale);
-        cabinMesh.setMatrixAt(i, zeroScale);
-        axleMesh.setMatrixAt(i * 2, zeroScale);
-        axleMesh.setMatrixAt(i * 2 + 1, zeroScale);
-      }
     }
-    carMesh.instanceMatrix.needsUpdate = true;
-    cabinMesh.instanceMatrix.needsUpdate = true;
-    axleMesh.instanceMatrix.needsUpdate = true;
-    if (activeCarsLabel) activeCarsLabel.textContent = `${activeCount} 辆车`;
+    let displayed=0;
+    // Reserve true positions first: illustration may never hide real vehicles.
+    const gap=BODY_L*MODEL_SCALE+0.4, occupied=new Map();
+    const cell=(x,z)=>Math.floor(x/gap)+','+Math.floor(z/gap);
+    function reserve(pose) {
+      const key=cell(pose.x,pose.z);
+      if(!occupied.has(key))occupied.set(key,[]);
+      occupied.get(key).push(pose);
+    }
+    function clearOfCars(pose) {
+      const cx=Math.floor(pose.x/gap),cz=Math.floor(pose.z/gap);
+      for(let x=cx-1;x<=cx+1;x++)for(let z=cz-1;z<=cz+1;z++) {
+        for(const other of occupied.get(x+','+z)||[]) {
+          if(Math.abs(pose.y-other.y)<BODY_H+CABIN_H &&
+            Math.hypot(pose.x-other.x,pose.z-other.z)<gap)return false;
+        }
+      }
+      return true;
+    }
+    for(const {pose,index} of active) { place(displayed++,pose,index);reserve(pose); }
+    // Extra cars are explicitly illustrative followers on the SAME currently
+    // active trip, not new agents. No parked gaps, future paths or time wrapping.
+    for(let copy=1;copy<density;copy++)for(const {trip,index} of active) {
+      const pose=sampleVehicleTrip(trip,simTime-copy*4);
+      if(!pose)continue;
+      pose.y=groundY(pose.x,pose.z)+pose.h*metresToScene;
+      if(!clearOfCars(pose))continue;
+      place(displayed++,pose,index+copy);reserve(pose);
+    }
+    // Compact instance counts avoid rendering every inactive day's vehicle.
+    carMesh.count=displayed;cabinMesh.count=displayed;roofMesh.count=displayed;axleMesh.count=displayed*2;
+    for(const mesh of [carMesh,cabinMesh,roofMesh,axleMesh])mesh.instanceMatrix.needsUpdate=true;
+    if(carMesh.instanceColor)carMesh.instanceColor.needsUpdate=true;
+    if(roofMesh.instanceColor)roofMesh.instanceColor.needsUpdate=true;
+    publishCounts(active.length,displayed-active.length);
   }
 
-  const onPlayPause = () => {
-    playing = !playing;
-    playPauseBtn.textContent = playing ? '暂停' : '播放';
+  const onPlayPause=()=>{
+    playing=!playing;
+    if(!playing)scene.userData.controls.autoRotate=false;
+    playPauseBtn.textContent=playing?'暂停':'播放';
   };
-  const onSliderInput = () => {
-    userScrubbing = true;
-    simTime = Number(slider.value);
-    clockLabel.textContent = formatSimClock(simTime);
+  const onSliderInput=()=>{
+    userScrubbing=true;
+    simTime=Number(slider.value);clockLabel.textContent=formatSimClock(simTime);
     updateVehiclePositions();
   };
-  const onSliderChange = () => { userScrubbing = false; };
-  const onSpeedChange = () => { speedMultiplier = Number(speedSelect.value); };
-  playPauseBtn.addEventListener('click', onPlayPause);
-  slider.addEventListener('input', onSliderInput);
-  slider.addEventListener('change', onSliderChange);
-  speedSelect.addEventListener('change', onSpeedChange);
-  scene.userData.cleanupCallbacks.push(() => {
-    playPauseBtn.removeEventListener('click', onPlayPause);
-    slider.removeEventListener('input', onSliderInput);
-    slider.removeEventListener('change', onSliderChange);
-    speedSelect.removeEventListener('change', onSpeedChange);
+  const onSliderChange=()=>{userScrubbing=false;};
+  const onSpeedChange=()=>{speedMultiplier=Number(speedSelect.value);};
+  const onDensityChange=()=>{
+    density=['1','3','5'].includes(densitySelect.value)?Number(densitySelect.value):1;
+    densitySelect.value=String(density);
+    updateVehiclePositions();
+    scene.userData.requestRender?.();
+  };
+  playPauseBtn.addEventListener('click',onPlayPause);
+  slider.addEventListener('input',onSliderInput);
+  slider.addEventListener('change',onSliderChange);
+  speedSelect.addEventListener('change',onSpeedChange);
+  densitySelect?.addEventListener('change',onDensityChange);
+  scene.userData.cleanupCallbacks.push(()=>{
+    playPauseBtn.removeEventListener('click',onPlayPause);
+    slider.removeEventListener('input',onSliderInput);
+    slider.removeEventListener('change',onSliderChange);
+    speedSelect.removeEventListener('change',onSpeedChange);
+    densitySelect?.removeEventListener('change',onDensityChange);
   });
-
-  scene.userData.tickCallbacks.push((dt) => {
-    if (playing && !userScrubbing) {
-      simTime += dt * speedMultiplier;
-      if (simTime > rangeEnd) simTime = rangeStart;
-      slider.value = simTime;
-      clockLabel.textContent = formatSimClock(simTime);
+  scene.userData.tickCallbacks.push(dt=>{
+    if(playing&&!userScrubbing) {
+      simTime+=dt*speedMultiplier;
+      if(simTime>rangeEnd)simTime=rangeStart;
+      slider.value=simTime;clockLabel.textContent=formatSimClock(simTime);
+      updateVehiclePositions();
     }
-    updateVehiclePositions();
   });
-
   updateVehiclePositions();
 }
 </script>

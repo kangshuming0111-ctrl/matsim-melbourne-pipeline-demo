@@ -1,0 +1,23 @@
+{
+  "baseline_run": "cbd_demo_20260926T050044Z_a805bd_sim",
+  "proposal_run": "if_20260926T050734Z_a9b72b_sim",
+  "selection_rule": "Highest final entered-link count among car_editable links with positive capacity and volume; ties sorted by string link ID. Selected before observing proposal results.",
+  "eligible_links": 869,
+  "selected_link": "255",
+  "baseline_entered_link_count": 171,
+  "baseline_capacity": 1200.0,
+  "proposal_capacity": 600.0,
+  "baseline_speed_kph": 50.0,
+  "baseline_lane_count": 2.0,
+  "request": {
+    "baseline_run": "cbd_demo_20260926T050044Z_a805bd_sim",
+    "name": "CBD reproducibility case - busy link capacity 50%",
+    "intervention": {
+      "type": "capacity_scale",
+      "link_id": "255",
+      "value": 50,
+      "include_reverse": true
+    }
+  },
+  "purpose": "Technical capacity sensitivity demonstration, not a policy recommendation or an optimised solution."
+}

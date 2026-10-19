@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<title>Land-use geometry regression</title>
+<style>body{font:16px system-ui;margin:30px}canvas{border:1px solid #999}pre{white-space:pre-wrap}</style>
+<h1>Land-use regression: real Canvas pixels and Three.js triangulation</h1>
+<p>Uses the application's shared functions. The white central square must remain a hole.</p>
+<canvas id="mask" width="100" height="100"></canvas><pre id="result">Running…</pre>
+<script src="http://127.0.0.1:8000/static/vendor/three/three.min.js"></script>
+<script src="http://127.0.0.1:8000/static/landuse-geometry.js?v=areas-2"></script>
+<script>
+const messages = [];
+function check(value, message) { if (!value) throw new Error(message); messages.push('PASS '+message); }
+try {
+  const entry = {points:[[5,5],[95,5],[95,95],[5,95]], holes:[[[40,40],[60,40],[60,60],[40,60]]]};
+  const ctx = document.getElementById('mask').getContext('2d');
+  ctx.fillStyle = '#3f7445';
+  SkylineLanduse.paint(ctx, entry, p => p);
+  check(ctx.getImageData(20,20,1,1).data[3] === 255, 'outer land is filled');
+  check(ctx.getImageData(50,50,1,1).data[3] === 0, 'hole remains transparent');
+  check(ctx.getImageData(0,0,1,1).data[3] === 0, 'outside remains transparent');
+  check(SkylineLanduse.contains(entry,20,20) && !SkylineLanduse.contains(entry,50,50), 'trees avoid holes');
+  const shape = SkylineLanduse.shape(THREE, entry);
+  const geom = new THREE.ShapeGeometry(shape);
+  const positions = geom.attributes.position, indices = geom.index.array;
+  let area = 0;
+  for (let i=0;i<indices.length;i+=3) {
+    const a=new THREE.Vector2().fromBufferAttribute(positions,indices[i]);
+    const b=new THREE.Vector2().fromBufferAttribute(positions,indices[i+1]);
+    const c=new THREE.Vector2().fromBufferAttribute(positions,indices[i+2]);
+    area += Math.abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))/2;
+  }
+  check(Math.abs(area-7700)<0.001, 'triangulated roof area excludes courtyard');
+  const extrusion = new THREE.ExtrudeGeometry(shape,{depth:10,bevelEnabled:false});
+  check([...extrusion.attributes.position.array].every(Number.isFinite), 'extrusion vertices are finite');
+  check(shape.holes.length === 1, 'courtyard has its own interior ring');
+  const reversed = {points:entry.points.slice().reverse(), holes:[entry.holes[0].slice().reverse()]};
+  ctx.clearRect(0,0,100,100);
+  SkylineLanduse.paint(ctx,reversed,p=>p);
+  check(ctx.getImageData(50,50,1,1).data[3]===0, 'hole is independent of input winding');
+  check(SkylineLanduse.shape(THREE,reversed).holes.length===1, 'shape accepts either winding');
+  geom.dispose(); extrusion.dispose();
+  document.getElementById('result').textContent=messages.join('\n')+'\nALL 9 CHECKS PASSED';
+} catch(error) {
+  document.getElementById('result').textContent=messages.join('\n')+'\nFAIL '+error.stack;
+}
+</script></html>

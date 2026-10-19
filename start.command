@@ -31,14 +31,6 @@ if [ ! -x "$APP_PYTHON" ]; then
   fi
 fi
 
-# If the user double-clicks twice, reuse the existing app instead of showing
-# a cryptic "address already in use" error in a second Terminal window.
-if curl -fsS "http://127.0.0.1:8000/system/status" >/dev/null 2>&1; then
-  echo "MATSim 已经在运行，正在打开网页..."
-  open "http://127.0.0.1:8000/"
-  exit 0
-fi
-
 echo "正在检查 Docker..."
 if ! docker info >/dev/null 2>&1; then
   echo "Docker Desktop 尚未启动。网站仍会打开，你可以查看已有结果；"
@@ -58,7 +50,11 @@ if ! "$APP_PYTHON" -c "import fastapi, uvicorn, rasterio" >/dev/null 2>&1; then
 fi
 
 echo ""
-echo "正在启动服务，几秒后会自动打开浏览器..."
-( sleep 2 && open "http://127.0.0.1:8000/" ) &
-
-exec "$APP_PYTHON" -m uvicorn wrapper.api:app --host 127.0.0.1 --port 8000
+echo "正在启动服务，确认服务就绪后会自动打开浏览器..."
+# The launcher detaches the server and points all process output at real files.
+# Closing this Terminal window must not break a later Docker job's stdout pipe.
+if ! "$APP_PYTHON" -m wrapper.server; then
+  echo "请查看 output/service_logs/web.log。已有服务不会被自动终止。"
+  read -p "按回车键关闭这个窗口..."
+  exit 1
+fi
